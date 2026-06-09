@@ -1,0 +1,78 @@
+---
+- name: Actualizar repositorios y paquetes del sistema
+  ansible.builtin.apt:
+    update_cache: yes
+    upgrade: dist
+    dpkg_options: 'force-confdef,force-confold'
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Instalar dependencias núcleo (Infraestructura)
+  ansible.builtin.apt:
+    pkg:
+      - curl
+      - nginx
+    state: present
+
+- name: Aumentar hash bucket size de Nginx para subdominios largos
+  ansible.builtin.lineinfile:
+    path: /etc/nginx/nginx.conf
+    regexp: '^\s*#?\s*server_names_hash_bucket_size'
+    line: '    server_names_hash_bucket_size 64;'
+    insertafter: 'http \{'
+  notify: Recargar Nginx
+
+- name: Descargar paquete de Cloudflared
+  ansible.builtin.get_url:
+    url: https://github.com/cloudflare/cloudflared/releases/download/2026.5.2/cloudflared-linux-armhf.deb
+    dest: /tmp/cloudflared.deb
+    mode: '0644'
+
+- name: Instalar Cloudflared
+  ansible.builtin.apt:
+    deb: /tmp/cloudflared.deb
+    state: present
+
+- name: Registrar servicio de Cloudflare Tunnel
+  ansible.builtin.command: "cloudflared service install {{ vault_cf_tunnel_token }}"
+  args:
+    creates: /etc/systemd/system/cloudflared.service
+  notify: Reiniciar cloudflared
+
+- name: Crear estructura de directorios base (Nginx e Infra)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ homelab_path }}"
+    - "/var/www/portfolio"
+    - "/var/www/monitor-app"
+
+- name: Compilar plantillas de Nginx
+  ansible.builtin.template:
+    src: "nginx/{{ item }}.j2"
+    dest: "/etc/nginx/sites-available/{{ item }}"
+    mode: '0644'
+  loop:
+    - portfolio
+    - monitor-app
+    - delegate
+  notify: Recargar Nginx
+
+- name: Activar sitios de Nginx (Symlinks)
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item }}"
+    dest: "/etc/nginx/sites-enabled/{{ item }}"
+    state: link
+  loop:
+    - portfolio
+    - monitor-app
+    - delegate
+  notify: Recargar Nginx
+
+- name: Eliminar sitio Nginx por defecto del SO
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recargar Nginx

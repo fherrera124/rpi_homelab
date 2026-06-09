@@ -1,0 +1,28 @@
+---
+- name: Instalar dependencias base para el entorno Node.js
+  ansible.builtin.apt:
+    pkg:
+      - xz-utils
+    state: present
+
+- name: Descargar e instalar Node.js v20 LTS (Binario Oficial ARMv7)
+  ansible.builtin.unarchive:
+    src: "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-armv7l.tar.xz"
+    dest: "/usr/local"
+    remote_src: yes
+    extra_opts:
+      - --strip-components=1
+  args:
+    creates: /usr/local/bin/node
+
+- name: Instalar PM2 globalmente
+  community.general.npm:
+    name: pm2
+    global: yes
+    state: present
+    executable: /usr/local/bin/npm
+
+- name: Configurar PM2 para iniciar en el arranque del sistema (Systemd)
+  ansible.builtin.command: /usr/local/bin/pm2 startup systemd -u root --hp /root
+  args:
+    creates: /etc/systemd/system/pm2-root.service

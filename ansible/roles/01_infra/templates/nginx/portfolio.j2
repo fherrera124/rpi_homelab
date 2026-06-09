@@ -1,0 +1,27 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ main_domain }} www.{{ main_domain }};
+    root /var/www/portfolio;
+    index index.html;
+
+    # Compresión Gzip para que el sitio cargue más rápido en móviles
+    gzip on;
+    gzip_types text/plain text/css application/javascript image/svg+xml;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Caché agresiva para assets estáticos
+    location ~* \.(?:ico|css|js|gif|jpe?g|png|woff2?|svg|webp)$ {
+        expires 6M;
+        access_log off;
+        add_header Cache-Control "public, max-age=15552000, immutable";
+    }
+
+    # Bloquear acceso a archivos ocultos (seguridad básica)
+    location ~ /\. {
+        deny all;
+    }
+}

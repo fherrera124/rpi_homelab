@@ -1,0 +1,11 @@
+---
+- name: Reiniciar cloudflared
+  ansible.builtin.systemd:
+    name: cloudflared
+    state: restarted
+    enabled: yes
+
+- name: Recargar Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded

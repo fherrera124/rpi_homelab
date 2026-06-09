@@ -1,0 +1,8 @@
+---
+- name: Aprovisionamiento y Día 0 - RPi Homelab
+  hosts: rpis
+  become: true
+  roles:
+    - 01_infra
+    - 02_nodejs
+    - 03_apps

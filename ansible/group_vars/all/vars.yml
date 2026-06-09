@@ -1,0 +1,3 @@
+homelab_path: "/opt/rpi_homelab"
+main_domain: "tunegociosmart.com.ar"
+delegate_target: "http://192.168.100.27:8000"

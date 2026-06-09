@@ -1,0 +1,49 @@
+---
+- name: Asegurar estructura de directorios internos (Monitor App)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ homelab_path }}/apps/monitor-app"
+    - "{{ homelab_path }}/apps/monitor-app/screenshots"
+
+- name: Sincronizar frontend estatico (Portfolio)
+  ansible.posix.synchronize:
+    src: "../../apps/portfolio/"
+    dest: "/var/www/portfolio/"
+    delete: yes
+
+- name: Sincronizar frontend estatico (Monitor App)
+  ansible.posix.synchronize:
+    src: "../../apps/monitor-app/frontend/"
+    dest: "/var/www/monitor-app/"
+    delete: yes
+
+- name: Sincronizar backend Node.js (Monitor App)
+  ansible.posix.synchronize:
+    src: "../../apps/monitor-app/backend/"
+    dest: "{{ homelab_path }}/apps/monitor-app/"
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=*.sqlite"
+      - "--exclude=screenshots"
+
+- name: Instalar dependencias de la aplicación (Monitor App)
+  ansible.builtin.shell:
+    cmd: npm install --production
+    chdir: "{{ homelab_path }}/apps/monitor-app"
+  environment:
+    NODE_ENV: production
+
+- name: Levantar Monitor App en PM2
+  ansible.builtin.command:
+    cmd: pm2 start server.js --name "monitor-app"
+    chdir: "{{ homelab_path }}/apps/monitor-app"
+  register: pm2_status
+  changed_when: "'monitor-app' not in pm2_status.stdout"
+  ignore_errors: yes
+
+- name: Guardar estado de PM2 para reinicios
+  ansible.builtin.command: pm2 save
+  when: pm2_status.changed
