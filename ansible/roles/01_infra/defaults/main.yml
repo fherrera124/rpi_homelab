@@ -1,0 +1,7 @@
+---
+# Cloudflared se instala desde las releases del proyecto, no desde apt.
+# La version esta aparte de la URL para poder compararla contra lo instalado
+# y evitar descargar el .deb en cada corrida.
+cloudflared_version: "2026.5.2"
+cloudflared_arch: armhf
+cloudflared_deb_url: "https://github.com/cloudflare/cloudflared/releases/download/{{ cloudflared_version }}/cloudflared-linux-{{ cloudflared_arch }}.deb"

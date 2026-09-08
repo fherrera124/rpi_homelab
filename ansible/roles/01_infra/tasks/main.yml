@@ -22,16 +22,34 @@
     insertafter: 'http \{'
   notify: Recargar Nginx
 
+- name: Comprobar la version instalada de Cloudflared
+  ansible.builtin.command: dpkg-query -W -f=${Version} cloudflared
+  register: cloudflared_installed
+  failed_when: false
+  changed_when: false
+  # Es una consulta de solo lectura: debe correr tambien en --check, o las
+  # tareas de abajo se evaluan con la variable vacia.
+  check_mode: false
+
 - name: Descargar paquete de Cloudflared
   ansible.builtin.get_url:
-    url: https://github.com/cloudflare/cloudflared/releases/download/2026.5.2/cloudflared-linux-armhf.deb
+    url: "{{ cloudflared_deb_url }}"
     dest: /tmp/cloudflared.deb
     mode: '0644'
+  when: cloudflared_version not in cloudflared_installed.stdout
 
+# Condicionada a la descarga: en --check get_url no baja nada, y sin este
+# guard apt fallaba con "Could not open file /tmp/cloudflared.deb".
 - name: Instalar Cloudflared
   ansible.builtin.apt:
     deb: /tmp/cloudflared.deb
     state: present
+  when: cloudflared_version not in cloudflared_installed.stdout
+
+- name: Limpiar el paquete descargado
+  ansible.builtin.file:
+    path: /tmp/cloudflared.deb
+    state: absent
 
 - name: Registrar servicio de Cloudflare Tunnel
   ansible.builtin.command: "cloudflared service install {{ vault_cf_tunnel_token }}"
