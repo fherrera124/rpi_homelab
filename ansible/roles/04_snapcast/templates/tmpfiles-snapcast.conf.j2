@@ -1,7 +1,9 @@
 # {{ ansible_managed }}
-# /run es tmpfs: se vacia en cada arranque. Estas reglas recrean el FIFO con
-# dueno y permisos correctos ANTES de que arranquen snapserver y el pipe-sink,
-# evitando la carrera de quien lo crea primero (si lo creara snapserver, que
-# corre como _snapserver, el pipe-sink no podria escribirlo).
+# /run es tmpfs: se vacia en cada arranque. Estas reglas recrean los FIFOs con
+# dueno y permisos correctos ANTES de que arranquen snapserver y los pipe-sinks,
+# evitando la carrera de quien los crea primero (si los creara snapserver, que
+# corre como _snapserver, los pipe-sinks no podrian escribirlos).
 d {{ soloist_fifo_dir }} 0755 {{ soloist_user }} {{ soloist_user }} -
-p {{ soloist_fifo }} 0666 {{ soloist_user }} {{ soloist_user }} -
+{% for s in snapcast_streams %}
+p {{ s.fifo }} 0666 {{ soloist_user }} {{ soloist_user }} -
+{% endfor %}

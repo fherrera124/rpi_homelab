@@ -71,7 +71,18 @@ pipewire-pulse + module-pipe-sink
    |
    v
 snapserver  ->  opus  ->  snapclients de la LAN (1704/1705/1780)
+                          + Snapweb en http://<ip>:1780
 ```
+
+Un solo stream en **opus** (~128 kbps) alcanza para todos los clientes: es lo que
+aguantan los ESP32 por wifi (con PCM a ~1,5 Mbps aparecen `audio starved`), y
+Snapweb tambien lo decodifica — su bundle incluye `opus-decoder` en WASM junto a
+`libflac.js`, verificado sobre el paquete instalado.
+
+Si alguna vez hicieran falta varios codecs, `snapcast_streams` acepta mas
+entradas: el rol genera un FIFO y un pipe-sink por codec mas un `combine-sink`
+que los replica. Tener en cuenta que **streams distintos son dominios de
+sincronizacion distintos**, y sus clientes no quedan sincronizados entre si.
 
 El FIFO se declara en `/etc/tmpfiles.d/` en lugar de crearlo un servicio: `/run` es tmpfs y se vacía en cada arranque, y así queda con dueño y permisos correctos **antes** de que arranquen snapserver y el pipe-sink. Si lo creara snapserver (que corre como `_snapserver`), el pipe-sink no podría escribirlo.
 
@@ -92,6 +103,14 @@ ansible-vault edit group_vars/all/vault.yml
 
 El build `arm32` que publica Spotify es **ARMv7**. Funciona en Pi 2, 3, 4 y 5; **no** en Pi 1 ni Zero, que son ARMv6. El rol aborta con un mensaje explícito si detecta una arquitectura sin build disponible.
 
+### Snapweb no viene en el paquete Debian
+
+El paquete `snapserver` de Debian instala solo un **placeholder** en
+`/usr/share/snapserver/snapweb` (un `index.html` de 2 KB que explica como
+instalar la interfaz real). El rol descarga el `.deb` oficial desde las releases
+de GitHub, que instala la aplicacion en `/usr/share/snapweb`, y apunta ahi el
+`doc_root` de snapserver.
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.
@@ -104,8 +123,9 @@ Están en `roles/04_snapcast/defaults/main.yml` y se sobreescriben desde `group_
 |---|---|---|
 | `soloist_device_name` | `Snapcast Hub RPi2` | Nombre en la app de Spotify |
 | `soloist_cache_mb` | `500` | El default de Soloist es ilimitado: sobre SD es desgaste y riesgo de llenar la partición |
-| `snapcast_codec` | `opus` | PCM son ~1,5 Mbps por cliente y satura a los ESP32 por wifi |
+| `snapcast_streams` | un stream opus | Lista: cada entrada genera FIFO, pipe-sink y `[stream]` |
 | `snapcast_buffer_ms` | `500` | |
+| `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas abajo |
 | `soloist_nice` / `soloist_cpu_weight` | `5` / `50` | Para que el audio no le gane CPU a servicios críticos |
 
 ### Operación

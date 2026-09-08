@@ -1,15 +1,32 @@
 # {{ ansible_managed }}
 [Unit]
-Description=pipe-sink de PulseAudio que puentea el audio de Soloist al FIFO de Snapcast
+Description=Sink de PulseAudio que puentea el audio de Soloist al FIFO de Snapcast
 After=pipewire-pulse.service
 Requires=pipewire-pulse.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# El FIFO ya existe (lo crea systemd-tmpfiles), aca solo se engancha el sink.
-ExecStart=/usr/bin/pactl load-module module-pipe-sink sink_name=soloist_sink file={{ soloist_fifo }} format={{ soloist_sink_format }} rate={{ soloist_sink_rate }} channels={{ soloist_sink_channels }}
+{% if snapcast_streams | length == 1 %}
+# Un solo codec: el pipe-sink es directamente el sink al que apunta Soloist,
+# sin combine-sink de por medio. El FIFO ya existe (systemd-tmpfiles).
+ExecStart=/usr/bin/pactl load-module module-pipe-sink sink_name={{ soloist_combine_sink }} file={{ snapcast_streams[0].fifo }} format={{ soloist_sink_format }} rate={{ soloist_sink_rate }} channels={{ soloist_sink_channels }}
+# El "-" ignora el fallo si no hay combine cargado. Sin esta linea, pasar de
+# varios codecs a uno solo deja el combine-sink huerfano y quedan dos sinks
+# con el mismo nombre, con Soloist enganchandose al que no es.
+ExecStop=-/usr/bin/pactl unload-module module-combine-sink
 ExecStop=/usr/bin/pactl unload-module module-pipe-sink
+{% else %}
+{% for s in snapcast_streams %}
+ExecStart=/usr/bin/pactl load-module module-pipe-sink sink_name={{ s.sink }} file={{ s.fifo }} format={{ soloist_sink_format }} rate={{ soloist_sink_rate }} channels={{ soloist_sink_channels }}
+{% endfor %}
+# El combine-sink replica hacia todos los anteriores. Soloist apunta solo a el,
+# asi que agregar codecs no cambia la configuracion de Soloist. Verificado: con
+# el combine cargado y nada reproduciendo, los streams quedan idle igual.
+ExecStart=/usr/bin/pactl load-module module-combine-sink sink_name={{ soloist_combine_sink }} slaves={{ snapcast_streams | map(attribute='sink') | join(',') }}
+ExecStop=/usr/bin/pactl unload-module module-combine-sink
+ExecStop=/usr/bin/pactl unload-module module-pipe-sink
+{% endif %}
 
 [Install]
 WantedBy=default.target

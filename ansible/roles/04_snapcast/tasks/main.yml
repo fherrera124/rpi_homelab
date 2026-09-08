@@ -68,7 +68,7 @@
 - name: Crear el FIFO si todavia no existe
   ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/snapcast-soloist.conf
   args:
-    creates: "{{ soloist_fifo }}"
+    creates: "{{ snapcast_streams[0].fifo }}"
 
 - name: Instalar el binario de Soloist
   ansible.builtin.unarchive:
@@ -161,6 +161,36 @@
   loop:
     - soloist-pipe-sink.service
     - soloist.service
+
+- name: Comprobar la version instalada de Snapweb
+  ansible.builtin.command: dpkg-query -W -f=${Version} snapweb
+  register: snapweb_installed
+  failed_when: false
+  changed_when: false
+  # Es una consulta de solo lectura: debe correr tambien en --check, o las
+  # tareas que dependen de su resultado se evaluan con la variable vacia.
+  check_mode: false
+
+# El paquete Debian de snapserver solo trae un placeholder en
+# /usr/share/snapserver/snapweb; la interfaz real se publica aparte.
+- name: Descargar el paquete de Snapweb
+  ansible.builtin.get_url:
+    url: "{{ snapweb_deb_url }}"
+    dest: /tmp/snapweb.deb
+    mode: '0644'
+  when: snapweb_version not in snapweb_installed.stdout
+
+- name: Instalar Snapweb
+  ansible.builtin.apt:
+    deb: /tmp/snapweb.deb
+    state: present
+  when: snapweb_version not in snapweb_installed.stdout
+  notify: Reiniciar Snapserver
+
+- name: Limpiar el paquete descargado
+  ansible.builtin.file:
+    path: /tmp/snapweb.deb
+    state: absent
 
 - name: Desplegar configuracion de Snapserver
   ansible.builtin.template:
