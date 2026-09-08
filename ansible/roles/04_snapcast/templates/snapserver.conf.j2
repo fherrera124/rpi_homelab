@@ -4,9 +4,11 @@
 
 [server]
 threads = -1
+# Donde snapserver busca el archivo referido por controlscript.
+plugin_dir = {{ snapcast_plugin_dir }}
 
 [stream]
-source = pipe://{{ soloist_fifo }}?name={{ snapcast_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec={{ snapcast_codec }}&mode=create
+source = pipe://{{ soloist_fifo }}?name={{ snapcast_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec={{ snapcast_codec }}&mode=create&controlscript={{ snapcast_controlscript }}&controlscriptparams=--ws-port={{ soloist_ws_port }}
 buffer = {{ snapcast_buffer_ms }}
 
 [http]

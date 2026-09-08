@@ -192,6 +192,15 @@
     path: /tmp/snapweb.deb
     state: absent
 
+- name: Desplegar el control script de metadata
+  ansible.builtin.template:
+    src: meta_soloist.py.j2
+    dest: "{{ snapcast_plugin_dir }}/{{ snapcast_controlscript }}"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Reiniciar Snapserver
+
 - name: Desplegar configuracion de Snapserver
   ansible.builtin.template:
     src: snapserver.conf.j2

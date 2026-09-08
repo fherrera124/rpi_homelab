@@ -46,6 +46,19 @@ snapweb_version: "0.9.3"
 snapweb_deb_url: "https://github.com/snapcast/snapweb/releases/download/v{{ snapweb_version }}/snapweb_{{ snapweb_version }}-1_all.deb"
 snapcast_doc_root: /usr/share/snapweb
 
+# API WebSocket de Soloist, de donde el control script saca la metadata.
+# Puerto FIJO a proposito: Soloist publica el asignado en
+# <data-dir>/ws.port, pero ese archivo vive en un directorio 700 del usuario
+# soloist y el control script corre como _snapserver, que no puede leerlo.
+# Escucha solo en loopback, no se expone a la LAN.
+soloist_ws_port: 9876
+
+# Control script que publica la metadata en la API de Snapcast y traduce los
+# comandos de transporte que llegan desde Snapweb. Vive en el plugin_dir de
+# snapserver.
+snapcast_plugin_dir: /usr/share/snapserver/plug-ins
+snapcast_controlscript: meta_soloist.py
+
 # Convivencia con otros servicios de la Pi: el audio no debe ganarle CPU a nada critico.
 soloist_nice: 5
 soloist_cpu_weight: 50

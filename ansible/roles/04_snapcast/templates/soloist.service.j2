@@ -13,7 +13,7 @@ EnvironmentFile=/etc/soloist/soloist.env
 # usuario de sistema resuelve a "/" y falla con "Permission denied".
 StateDirectory=soloist
 CacheDirectory=soloist
-ExecStart={{ soloist_binary }} --device-name ${DEVICE_NAME} --api-key ${SOLOIST_API_KEY} --pipewire-device soloist_sink --cache-size ${CACHE_MB}
+ExecStart={{ soloist_binary }} --device-name ${DEVICE_NAME} --api-key ${SOLOIST_API_KEY} --pipewire-device soloist_sink --cache-size ${CACHE_MB} --ws 127.0.0.1:{{ soloist_ws_port }}
 Restart=on-failure
 RestartSec=10
 # El audio no debe ganarle CPU a los servicios criticos del equipo.

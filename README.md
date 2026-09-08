@@ -106,6 +106,38 @@ instalar la interfaz real). El rol descarga el `.deb` oficial desde las releases
 de GitHub, que instala la aplicacion en `/usr/share/snapweb`, y apunta ahi el
 `doc_root` de snapserver.
 
+### Metadata y control desde Snapweb
+
+El rol instala un *control script* de Snapcast en
+`/usr/share/snapserver/plug-ins/meta_soloist.py`, que publica en la API de Snapcast
+lo que Soloist esta reproduciendo (titulo, artista, album, caratula, duracion,
+posicion) y traduce en sentido inverso los comandos de transporte: los botones
+play/pause/next/prev/seek de Snapweb controlan Spotify de verdad.
+
+Habla con Soloist a traves de `soloist ctl`, no con una libreria WebSocket de
+Python: es una dependencia menos que instalar en la Pi.
+
+**Por que el puerto de la WS es fijo.** Soloist publica el puerto asignado en
+`<data-dir>/ws.port`, pero ese archivo vive en un directorio `700` del usuario
+`soloist` y snapserver ejecuta el control script como `_snapserver`, que no puede
+leerlo. Fijandolo con `--ws 127.0.0.1:9876` el script se conecta sin
+tocar permisos. Escucha solo en loopback.
+
+**Dos detalles del protocolo que cuestan un rato descubrir:**
+
+- Snapserver agrega `--stream`, `--snapcast-host` y `--snapcast-port` a lo que se
+  declare en `controlscriptparams`. Si el script no los acepta, `getopt` aborta con
+  `option --stream not recognized` y el plugin muere al arrancar.
+- Spotify publica `play` y `pause` en `available_actions` de forma mutuamente
+  excluyente segun el estado, pero Snapcast usa `canPlay`/`canPause` para *habilitar*
+  comandos: con `canPause` en false rechaza el comando con
+  `Stream property canPause is false`. Por eso el script pone ambos en true cuando
+  cualquiera de las dos acciones esta disponible.
+
+El volumen queda deliberadamente fuera: Snapcast ya tiene volumen por cliente, que es
+el que corresponde. Mapearlo a Soloist bajaria la fuente para todos los parlantes a
+la vez.
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.
@@ -120,7 +152,8 @@ Están en `roles/04_snapcast/defaults/main.yml` y se sobreescriben desde `group_
 | `soloist_cache_mb` | `500` | El default de Soloist es ilimitado: sobre SD es desgaste y riesgo de llenar la partición |
 | `snapcast_codec` | `opus` | Lo decodifican tanto los ESP32 como Snapweb |
 | `snapcast_buffer_ms` | `500` | |
-| `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas abajo |
+| `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas arriba |
+| `soloist_ws_port` | `9876` | Puerto de la WS de Soloist, solo loopback |
 | `soloist_nice` / `soloist_cpu_weight` | `5` / `50` | Para que el audio no le gane CPU a servicios críticos |
 
 ### Operación
