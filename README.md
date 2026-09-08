@@ -162,21 +162,36 @@ Del lado de la Pi, el rol `01_infra` despliega:
 
 - `nginx/snapcast.j2` → proxy a `127.0.0.1:1780`.
 - `nginx/websocket-upgrade.conf.j2` → un `map` en `conf.d` que resuelve la cabecera
-  `Connection` segun el request. Hace falta porque Snapweb usa `/jsonrpc` **para las
-  dos cosas**: POST de JSON-RPC plano y upgrade a WebSocket (control y streaming de
-  audio). Hardcodear `Connection "upgrade"` romperia los POST.
+  `Connection` segun el request.
 
-El `location /jsonrpc` lleva ademas `proxy_read_timeout 3600s` y `proxy_buffering off`,
-porque el stream de audio es una conexion larga y continua: sin eso nginx la corta y
+**Snapweb abre DOS WebSockets, y los dos hay que proxearlos:**
+
+| Path | Para que |
+|---|---|
+| `/jsonrpc` | Control y metadata. Ese path recibe **ademas** POST de JSON-RPC plano. |
+| `/stream` | El audio, en frames binarios (`binaryType = "arraybuffer"`). |
+
+Que `/jsonrpc` sirva para las dos cosas es lo que obliga al `map`: hardcodear
+`Connection "upgrade"` romperia los POST. Y olvidarse de `/stream` da un sintoma
+enganoso — la metadata y los controles andan perfecto, pero no hay audio y el
+navegador tira un error de WebSocket al recargar, porque snapserver devuelve `404` a
+un GET normal sobre un endpoint que solo existe como WebSocket.
+
+Por eso las cabeceras de upgrade van a **nivel de `server`** y las hereda todo el
+vhost. Ambos paths comparten un `location` con `proxy_read_timeout 3600s` y
+`proxy_buffering off`: son conexiones largas y continuas, y sin eso nginx las corta y
 el audio llega a tirones.
 
-Verificado en la Pi con la cabecera `Host` correspondiente: la app responde `200`, el
-bundle completo baja entero, el POST a `/jsonrpc` funciona y el handshake de WebSocket
-devuelve `101 Switching Protocols`.
+Verificado de punta a punta desde una red externa, con Access delante: metadata,
+control y audio funcionando, con `101 Switching Protocols` en ambos endpoints.
 
-**Sin verificar todavia:** que el flujo de login de Access conviva bien con el
-WebSocket (deberia, la cookie `CF_Authorization` viaja en handshakes same-origin) y
-con Snapweb instalado como PWA, que trae `manifest.webmanifest`.
+> Al validar cambios en este vhost, no confiar en un `curl` inmediatamente despues de
+> `systemctl reload nginx`: los workers viejos siguen sirviendo la configuracion
+> anterior un instante mas. `/var/log/nginx/access.log` muestra lo que realmente esta
+> pasando.
+
+**Sin verificar todavia:** Snapweb instalado como PWA (trae `manifest.webmanifest`)
+conviviendo con el flujo de login por redireccion de Access.
 
 ### Vencimiento a los 90 días
 

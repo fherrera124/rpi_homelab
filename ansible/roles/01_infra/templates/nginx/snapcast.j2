@@ -13,23 +13,28 @@ server {
     listen [::]:80;
     server_name snapcast.{{ main_domain }};
 
-    # Snapweb hace control y streaming de audio por WebSocket contra /jsonrpc,
-    # pero ese mismo path tambien recibe POST de JSON-RPC plano, por eso las
-    # cabeceras de upgrade son condicionales (ver conf.d/websocket-upgrade.conf).
-    location /jsonrpc {
+    # Snapweb abre DOS WebSockets contra snapserver:
+    #   /jsonrpc  control y metadata (ese path recibe ademas POST de JSON-RPC plano)
+    #   /stream   el audio, en frames binarios
+    # Por eso las cabeceras de upgrade van a nivel de server y las hereda todo
+    # el vhost. Son condicionales via el map de conf.d/websocket-upgrade.conf,
+    # asi que los requests normales no se rompen.
+    #
+    # Nota: nginx solo hereda estos proxy_set_header si el location NO define
+    # los suyos. Si se agrega un proxy_set_header dentro de un location, hay que
+    # repetir el bloque entero ahi.
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Conexiones largas y continuas: sin timeouts amplios nginx las corta, y con
+    # buffering el audio llega a tirones.
+    location ~ ^/(stream|jsonrpc)$ {
         proxy_pass http://127.0.0.1:{{ snapcast_http_port | default(1780) }};
-
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # El stream de audio es una conexion larga y continua: sin esto nginx la
-        # corta al minuto, y con buffering el audio llega a tirones.
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_buffering off;
@@ -37,10 +42,5 @@ server {
 
     location / {
         proxy_pass http://127.0.0.1:{{ snapcast_http_port | default(1780) }};
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
