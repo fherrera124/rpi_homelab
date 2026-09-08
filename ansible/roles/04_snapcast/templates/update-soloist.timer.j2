@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Chequeo semanal del binario de Soloist
+
+[Timer]
+OnCalendar={{ soloist_update_oncalendar }}
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

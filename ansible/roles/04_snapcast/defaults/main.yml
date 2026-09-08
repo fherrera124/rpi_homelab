@@ -1,0 +1,47 @@
+---
+# Usuario de sistema que corre la sesion PipeWire y Soloist.
+# Sin login real: la sesion systemd --user se sostiene con linger.
+soloist_user: soloist
+soloist_home: /var/lib/soloist
+
+# Soloist solo sabe salir por PulseAudio (hace dlopen de libpulse.so.0; no
+# tiene backend ALSA ni salida a stdout), asi que el puente pipe-sink -> FIFO
+# es obligatorio para alimentar a Snapserver.
+soloist_binary: /usr/local/bin/soloist
+soloist_fifo_dir: /run/snapcast
+soloist_fifo: /run/snapcast/soloist
+
+# Los builds de Spotify vencen a los 90 dias (exit code 10); el timer los renueva.
+soloist_builds_url: https://soloist-builds.spotifycdn.com
+soloist_arch_map:
+  armv7l: arm32
+  aarch64: arm64
+  x86_64: x86_64
+
+# Nombre visible en la app de Spotify.
+soloist_device_name: "Snapcast Hub RPi2"
+
+# Tope de cache. El default de Soloist es ilimitado, inaceptable sobre una SD.
+soloist_cache_mb: 500
+
+# Formato del FIFO. Debe coincidir con snapcast_sampleformat.
+soloist_sink_format: s16le
+soloist_sink_rate: 48000
+soloist_sink_channels: 2
+
+# Snapserver: opus mantiene el ancho de banda bajo para clientes ESP32 por wifi
+# (PCM son ~1,5 Mbps por cliente y los satura).
+snapcast_stream_name: Soloist
+snapcast_codec: opus
+snapcast_sampleformat: "48000:16:2"
+snapcast_buffer_ms: 500
+snapcast_http_port: 1780
+snapcast_tcp_port: 1705
+snapcast_doc_root: /usr/share/snapserver/snapweb
+
+# Convivencia con otros servicios de la Pi: el audio no debe ganarle CPU a nada critico.
+soloist_nice: 5
+soloist_cpu_weight: 50
+
+# Chequeo semanal del binario.
+soloist_update_oncalendar: "Sun *-*-* 04:00:00"

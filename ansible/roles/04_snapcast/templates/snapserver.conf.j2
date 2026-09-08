@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Hub de distribucion: Soloist (Spotify Connect) -> FIFO -> snapclients de la LAN.
+# Sin parlantes locales en este equipo.
+
+[server]
+threads = -1
+
+[stream]
+source = pipe://{{ soloist_fifo }}?name={{ snapcast_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec={{ snapcast_codec }}&mode=create
+buffer = {{ snapcast_buffer_ms }}
+
+[http]
+enabled = true
+port = {{ snapcast_http_port }}
+doc_root = {{ snapcast_doc_root }}
+
+[tcp]
+enabled = true
+port = {{ snapcast_tcp_port }}

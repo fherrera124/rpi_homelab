@@ -1,0 +1,38 @@
+#!/bin/sh
+# {{ ansible_managed }}
+#
+# Refresca el binario de Soloist (los builds vencen a los 90 dias, exit code 10)
+# y reinicia el servicio SOLO si el binario cambio de verdad.
+# Adaptado de https://chrisnethercott.co.uk/blog/librespot-soloist/
+# Lo dispara update-soloist.timer, como root.
+set -e
+
+BINARY_PATH="{{ soloist_binary }}"
+SOLOIST_USER="{{ soloist_user }}"
+SOLOIST_UID="$(id -u "$SOLOIST_USER")"
+
+case "$(uname -m)" in
+  aarch64) ARCH="arm64" ;;
+  armv7l)  ARCH="arm32" ;;
+  x86_64)  ARCH="x86_64" ;;
+  *) echo "Arquitectura no soportada: $(uname -m)" >&2; exit 1 ;;
+esac
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+curl --fail --location --silent --show-error \
+  -o "$TMP/soloist.tar.gz" \
+  "{{ soloist_builds_url }}/soloist_release_${ARCH}.tar.gz"
+
+tar -xzf "$TMP/soloist.tar.gz" -C "$TMP"
+test -x "$TMP/soloist"
+
+if cmp -s "$TMP/soloist" "$BINARY_PATH" 2>/dev/null; then
+  echo "$(date -Iseconds): sin cambios"
+else
+  install -m 755 "$TMP/soloist" "$BINARY_PATH"
+  echo "$(date -Iseconds): nuevo build instalado, reiniciando soloist"
+  runuser -u "$SOLOIST_USER" -- env "XDG_RUNTIME_DIR=/run/user/${SOLOIST_UID}" \
+    systemctl --user restart soloist.service
+fi

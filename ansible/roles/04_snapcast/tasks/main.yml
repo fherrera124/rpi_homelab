@@ -1,0 +1,206 @@
+---
+- name: Verificar que la API key de Soloist esta en el vault
+  ansible.builtin.assert:
+    that:
+      - vault_soloist_api_key is defined
+      - vault_soloist_api_key | length > 0
+    fail_msg: >-
+      Falta vault_soloist_api_key. Agregala con:
+      ansible-vault edit group_vars/all/vault.yml
+      (se obtiene en https://developer.spotify.com/dashboard/soloist,
+      requiere una cuenta Premium para generarla).
+
+- name: Verificar que la arquitectura tiene build de Soloist
+  ansible.builtin.assert:
+    that: ansible_architecture in soloist_arch_map
+    fail_msg: >-
+      Soloist no publica build para {{ ansible_architecture }}.
+      Soportadas: {{ soloist_arch_map.keys() | list | join(', ') }}.
+      Nota: las Pi 1 y Zero son ARMv6 y NO sirven, el build arm32 es ARMv7.
+
+- name: Instalar Snapserver y el stack de audio
+  ansible.builtin.apt:
+    pkg:
+      - snapserver
+      # PipeWire en vez de PulseAudio: en trixie son 44 paquetes contra 115.
+      - pipewire
+      - pipewire-pulse
+      - wireplumber
+      - pulseaudio-utils
+      # acl permite que Ansible escale a un usuario sin privilegios (become_user).
+      - acl
+    state: present
+
+- name: Crear usuario de sistema para la sesion de audio
+  ansible.builtin.user:
+    name: "{{ soloist_user }}"
+    system: true
+    create_home: true
+    home: "{{ soloist_home }}"
+    shell: /usr/sbin/nologin
+    groups: audio
+    append: true
+  register: soloist_account
+
+- name: Fijar el UID de soloist para las sesiones systemd --user
+  ansible.builtin.set_fact:
+    soloist_uid: "{{ soloist_account.uid }}"
+
+- name: Habilitar linger (sostiene systemd --user sin login real)
+  ansible.builtin.command: "loginctl enable-linger {{ soloist_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ soloist_user }}"
+
+- name: Esperar a que la sesion de usuario este disponible
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ soloist_uid }}"
+    timeout: 30
+
+- name: Desplegar regla de tmpfiles para el FIFO
+  ansible.builtin.template:
+    src: tmpfiles-snapcast.conf.j2
+    dest: /etc/tmpfiles.d/snapcast-soloist.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Recargar reglas de tmpfiles
+
+- name: Crear el FIFO si todavia no existe
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/snapcast-soloist.conf
+  args:
+    creates: "{{ soloist_fifo }}"
+
+- name: Instalar el binario de Soloist
+  ansible.builtin.unarchive:
+    src: "{{ soloist_builds_url }}/soloist_release_{{ soloist_arch_map[ansible_architecture] }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+    creates: "{{ soloist_binary }}"
+
+- name: Crear directorio de la API key
+  ansible.builtin.file:
+    path: /etc/soloist
+    state: directory
+    owner: root
+    group: "{{ soloist_user }}"
+    mode: '0750'
+
+- name: Desplegar la API key de Soloist
+  ansible.builtin.template:
+    src: soloist-env.j2
+    dest: /etc/soloist/soloist.env
+    owner: root
+    group: "{{ soloist_user }}"
+    mode: '0640'
+  no_log: true
+  notify: Reiniciar Soloist
+
+- name: Desplegar configuracion no secreta de Soloist
+  ansible.builtin.template:
+    src: soloist-default.j2
+    dest: /etc/default/soloist
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reiniciar Soloist
+
+- name: Crear directorio de units de usuario
+  ansible.builtin.file:
+    path: "{{ soloist_home }}/.config/systemd/user"
+    state: directory
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0755'
+
+- name: Desplegar units de usuario
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ soloist_home }}/.config/systemd/user/{{ item.dest }}"
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0644'
+  loop:
+    - { src: soloist-pipe-sink.service.j2, dest: soloist-pipe-sink.service }
+    - { src: soloist.service.j2, dest: soloist.service }
+  notify:
+    - Recargar systemd de usuario
+    - Reiniciar pipe-sink de Soloist
+    - Reiniciar Soloist
+
+- name: Aplicar cambios pendientes antes de habilitar servicios
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar la sesion PipeWire del usuario soloist
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+  loop:
+    - pipewire.socket
+    - pipewire-pulse.socket
+    - wireplumber.service
+
+- name: Habilitar pipe-sink y Soloist
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+  loop:
+    - soloist-pipe-sink.service
+    - soloist.service
+
+- name: Desplegar configuracion de Snapserver
+  ansible.builtin.template:
+    src: snapserver.conf.j2
+    dest: /etc/snapserver.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Reiniciar Snapserver
+
+- name: Habilitar Snapserver
+  ansible.builtin.systemd_service:
+    name: snapserver
+    enabled: true
+    state: started
+
+- name: Desplegar el renovador del binario de Soloist
+  ansible.builtin.template:
+    src: update-soloist.sh.j2
+    dest: /usr/local/sbin/update-soloist.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Desplegar unit y timer del renovador
+  ansible.builtin.template:
+    src: "update-soloist.{{ item }}.j2"
+    dest: "/etc/systemd/system/update-soloist.{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - service
+    - timer
+  notify: Reiniciar timer de actualizacion
+
+- name: Habilitar el timer semanal de actualizacion
+  ansible.builtin.systemd_service:
+    name: update-soloist.timer
+    enabled: true
+    state: started
+    daemon_reload: true

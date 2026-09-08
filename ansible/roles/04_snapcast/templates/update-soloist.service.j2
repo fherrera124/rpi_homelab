@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Refresca el binario de Soloist (vence a los 90 dias)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/update-soloist.sh

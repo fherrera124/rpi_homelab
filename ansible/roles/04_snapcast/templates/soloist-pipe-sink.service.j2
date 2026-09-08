@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=pipe-sink de PulseAudio que puentea el audio de Soloist al FIFO de Snapcast
+After=pipewire-pulse.service
+Requires=pipewire-pulse.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# El FIFO ya existe (lo crea systemd-tmpfiles), aca solo se engancha el sink.
+ExecStart=/usr/bin/pactl load-module module-pipe-sink sink_name=soloist_sink file={{ soloist_fifo }} format={{ soloist_sink_format }} rate={{ soloist_sink_rate }} channels={{ soloist_sink_channels }}
+ExecStop=/usr/bin/pactl unload-module module-pipe-sink
+
+[Install]
+WantedBy=default.target
