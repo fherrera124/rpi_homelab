@@ -49,6 +49,13 @@
     - "/var/www/portfolio"
     - "/var/www/monitor-app"
 
+- name: Desplegar el map de upgrade para WebSockets
+  ansible.builtin.template:
+    src: nginx/websocket-upgrade.conf.j2
+    dest: /etc/nginx/conf.d/websocket-upgrade.conf
+    mode: '0644'
+  notify: Recargar Nginx
+
 - name: Compilar plantillas de Nginx
   ansible.builtin.template:
     src: "nginx/{{ item }}.j2"
@@ -58,6 +65,7 @@
     - portfolio
     - monitor-app
     - delegate
+    - snapcast
   notify: Recargar Nginx
 
 - name: Activar sitios de Nginx (Symlinks)
@@ -69,6 +77,7 @@
     - portfolio
     - monitor-app
     - delegate
+    - snapcast
   notify: Recargar Nginx
 
 - name: Eliminar sitio Nginx por defecto del SO

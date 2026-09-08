@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+#
+# ATENCION: este vhost NO tiene autenticacion propia. Snapcast tampoco: su
+# JSON-RPC responde 200 sin credenciales, y con el control script instalado eso
+# significa control total sobre la reproduccion de Spotify y sobre el volumen de
+# cada parlante.
+#
+# Se expone a proposito sin auth porque la proteccion vive en Cloudflare Access
+# (Zero Trust), delante del tunel. Si se publica este hostname SIN una politica
+# de Access configurada, queda completamente abierto a internet.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name snapcast.{{ main_domain }};
+
+    # Snapweb hace control y streaming de audio por WebSocket contra /jsonrpc,
+    # pero ese mismo path tambien recibe POST de JSON-RPC plano, por eso las
+    # cabeceras de upgrade son condicionales (ver conf.d/websocket-upgrade.conf).
+    location /jsonrpc {
+        proxy_pass http://127.0.0.1:{{ snapcast_http_port | default(1780) }};
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # El stream de audio es una conexion larga y continua: sin esto nginx la
+        # corta al minuto, y con buffering el audio llega a tirones.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ snapcast_http_port | default(1780) }};
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

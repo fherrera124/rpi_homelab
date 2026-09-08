@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Resuelve la cabecera Connection segun si el request es un upgrade o no.
+# Hardcodear Connection "upgrade" rompe los requests HTTP normales al mismo
+# location; este map manda "upgrade" solo cuando corresponde y "close" el resto
+# del tiempo. Va en conf.d porque map solo es valido dentro del bloque http.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}

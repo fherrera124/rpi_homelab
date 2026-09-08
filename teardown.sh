@@ -50,6 +50,9 @@ rm -rf /etc/nginx/sites-available/monitor-app
 rm -rf /etc/nginx/sites-enabled/monitor-app
 rm -rf /etc/nginx/sites-available/portfolio
 rm -rf /etc/nginx/sites-enabled/portfolio
+rm -rf /etc/nginx/sites-available/snapcast
+rm -rf /etc/nginx/sites-enabled/snapcast
+rm -f /etc/nginx/conf.d/websocket-upgrade.conf
 
 echo "-> Eliminando estado de PM2..."
 rm -rf /root/.pm2

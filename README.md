@@ -138,6 +138,46 @@ El volumen queda deliberadamente fuera: Snapcast ya tiene volumen por cliente, q
 el que corresponde. Mapearlo a Soloist bajaria la fuente para todos los parlantes a
 la vez.
 
+### Exposicion externa (`snapcast.tunegociosmart.com.ar`)
+
+> **La proteccion vive en Cloudflare Access, no en la Pi.**
+> Snapcast **no tiene autenticacion de ningun tipo**: su JSON-RPC responde `200` sin
+> credenciales. Con el control script instalado, eso significa control total sobre la
+> reproduccion de Spotify y sobre el volumen de cada parlante de la casa, ademas de
+> ver que se esta escuchando.
+>
+> El vhost se despliega **a proposito sin auth**. Si se publica el hostname en el
+> tunel SIN una politica de Access configurada, queda abierto a internet.
+
+Configuracion del lado de Cloudflare (no la hace Ansible):
+
+1. **Zero Trust → Networks → Tunnels →** el tunel → *Public Hostname*:
+   `snapcast.tunegociosmart.com.ar` → `http://localhost:80`, para que nginx rutee
+   por `Host` igual que el resto de los vhosts.
+2. **Access → Applications → Add a self-hosted application** con ese dominio.
+3. Politica *Allow* por email. El proveedor *One-time PIN* viene habilitado de
+   fabrica, no hace falta conectar Google ni GitHub.
+
+Del lado de la Pi, el rol `01_infra` despliega:
+
+- `nginx/snapcast.j2` → proxy a `127.0.0.1:1780`.
+- `nginx/websocket-upgrade.conf.j2` → un `map` en `conf.d` que resuelve la cabecera
+  `Connection` segun el request. Hace falta porque Snapweb usa `/jsonrpc` **para las
+  dos cosas**: POST de JSON-RPC plano y upgrade a WebSocket (control y streaming de
+  audio). Hardcodear `Connection "upgrade"` romperia los POST.
+
+El `location /jsonrpc` lleva ademas `proxy_read_timeout 3600s` y `proxy_buffering off`,
+porque el stream de audio es una conexion larga y continua: sin eso nginx la corta y
+el audio llega a tirones.
+
+Verificado en la Pi con la cabecera `Host` correspondiente: la app responde `200`, el
+bundle completo baja entero, el POST a `/jsonrpc` funciona y el handshake de WebSocket
+devuelve `101 Switching Protocols`.
+
+**Sin verificar todavia:** que el flujo de login de Access conviva bien con el
+WebSocket (deberia, la cookie `CF_Authorization` viaja en handshakes same-origin) y
+con Snapweb instalado como PWA, que trae `manifest.webmanifest`.
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.
