@@ -9,10 +9,7 @@ soloist_home: /var/lib/soloist
 # es obligatorio para alimentar a Snapserver.
 soloist_binary: /usr/local/bin/soloist
 soloist_fifo_dir: /run/snapcast
-
-# Sink virtual al que apunta Soloist. Es un combine-sink que replica el audio
-# hacia un pipe-sink por codec, para que cada cliente use el que puede decodificar.
-soloist_combine_sink: soloist_sink
+soloist_fifo: /run/snapcast/soloist
 
 # Los builds de Spotify vencen a los 90 dias (exit code 10); el timer los renueva.
 soloist_builds_url: https://soloist-builds.spotifycdn.com
@@ -32,32 +29,19 @@ soloist_sink_format: s16le
 soloist_sink_rate: 48000
 soloist_sink_channels: 2
 
-# Un stream por codec. Cada entrada genera su FIFO, su pipe-sink y su [stream]
-# en snapserver; agregar o quitar codecs es editar esta lista.
-#
-#   opus  -> ~128 kbps: es lo que aguantan los ESP32 por wifi (con PCM a
-#            ~1,5 Mbps aparecen "audio starved"). Snapweb tambien lo decodifica
-#            (su bundle trae opus-decoder en WASM), asi que un solo stream
-#            alcanza para todos los clientes.
-#
-# Con un unico stream el pipe-sink es directamente el sink de Soloist. Si se
-# agregan mas entradas, el rol crea un pipe-sink por codec mas un combine-sink
-# que los replica; ojo que streams distintos son dominios de sincronizacion
-# distintos, y sus clientes no quedan sincronizados entre si.
-snapcast_streams:
-  - name: Soloist
-    codec: opus
-    sink: soloist_sink_opus
-    fifo: /run/snapcast/soloist
-
+# Snapserver. opus (~128 kbps) es lo que aguantan los ESP32 por wifi: con PCM a
+# ~1,5 Mbps aparecen "audio starved". Snapweb tambien lo decodifica, su bundle
+# trae opus-decoder en WASM, asi que un unico stream sirve a todos los clientes.
+snapcast_stream_name: Soloist
+snapcast_codec: opus
 snapcast_sampleformat: "48000:16:2"
 snapcast_buffer_ms: 500
 snapcast_http_port: 1780
 snapcast_tcp_port: 1705
 
-# El paquete Debian de snapserver trae solo un placeholder en
-# /usr/share/snapserver/snapweb; la interfaz real se instala aparte y va a
-# /usr/share/snapweb.
+# El paquete Debian de snapserver trae solo un placeholder de 2 KB en
+# /usr/share/snapserver/snapweb; la interfaz real se instala aparte desde las
+# releases del proyecto y va a /usr/share/snapweb.
 snapweb_version: "0.9.3"
 snapweb_deb_url: "https://github.com/snapcast/snapweb/releases/download/v{{ snapweb_version }}/snapweb_{{ snapweb_version }}-1_all.deb"
 snapcast_doc_root: /usr/share/snapweb

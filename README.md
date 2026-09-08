@@ -79,11 +79,6 @@ aguantan los ESP32 por wifi (con PCM a ~1,5 Mbps aparecen `audio starved`), y
 Snapweb tambien lo decodifica — su bundle incluye `opus-decoder` en WASM junto a
 `libflac.js`, verificado sobre el paquete instalado.
 
-Si alguna vez hicieran falta varios codecs, `snapcast_streams` acepta mas
-entradas: el rol genera un FIFO y un pipe-sink por codec mas un `combine-sink`
-que los replica. Tener en cuenta que **streams distintos son dominios de
-sincronizacion distintos**, y sus clientes no quedan sincronizados entre si.
-
 El FIFO se declara en `/etc/tmpfiles.d/` en lugar de crearlo un servicio: `/run` es tmpfs y se vacía en cada arranque, y así queda con dueño y permisos correctos **antes** de que arranquen snapserver y el pipe-sink. Si lo creara snapserver (que corre como `_snapserver`), el pipe-sink no podría escribirlo.
 
 Soloist corre bajo un usuario de sistema dedicado (`soloist`, sin login) con **linger** habilitado, que sostiene su sesión `systemd --user` donde viven PipeWire, WirePlumber, el pipe-sink y el propio Soloist.
@@ -123,7 +118,7 @@ Están en `roles/04_snapcast/defaults/main.yml` y se sobreescriben desde `group_
 |---|---|---|
 | `soloist_device_name` | `Snapcast Hub RPi2` | Nombre en la app de Spotify |
 | `soloist_cache_mb` | `500` | El default de Soloist es ilimitado: sobre SD es desgaste y riesgo de llenar la partición |
-| `snapcast_streams` | un stream opus | Lista: cada entrada genera FIFO, pipe-sink y `[stream]` |
+| `snapcast_codec` | `opus` | Lo decodifican tanto los ESP32 como Snapweb |
 | `snapcast_buffer_ms` | `500` | |
 | `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas abajo |
 | `soloist_nice` / `soloist_cpu_weight` | `5` / `50` | Para que el audio no le gane CPU a servicios críticos |

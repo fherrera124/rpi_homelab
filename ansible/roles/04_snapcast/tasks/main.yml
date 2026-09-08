@@ -68,7 +68,7 @@
 - name: Crear el FIFO si todavia no existe
   ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/snapcast-soloist.conf
   args:
-    creates: "{{ snapcast_streams[0].fifo }}"
+    creates: "{{ soloist_fifo }}"
 
 - name: Instalar el binario de Soloist
   ansible.builtin.unarchive:
