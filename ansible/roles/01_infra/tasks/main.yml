@@ -84,7 +84,18 @@
     - monitor-app
     - delegate
     - snapcast
-    - stream-lan
+  notify: Recargar Nginx
+
+# stream-lan es propiedad de facto del rol 06_sangean: solo existe por el HEAD
+# que la Sangean WFR-28 valida antes de aceptar una URL (ver el comentario del
+# propio template). Se condiciona a que algo del rol este activo para que dar
+# de baja la Sangean no deje este vhost huerfano.
+- name: Compilar plantilla de Nginx para la Sangean
+  ansible.builtin.template:
+    src: nginx/stream-lan.j2
+    dest: /etc/nginx/sites-available/stream-lan
+    mode: '0644'
+  when: sangean_enabled or sangean_wake_enabled
   notify: Recargar Nginx
 
 - name: Activar sitios de Nginx (Symlinks)
@@ -97,7 +108,14 @@
     - monitor-app
     - delegate
     - snapcast
-    - stream-lan
+  notify: Recargar Nginx
+
+- name: Activar sitio de Nginx para la Sangean (Symlink)
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/stream-lan
+    dest: /etc/nginx/sites-enabled/stream-lan
+    state: link
+  when: sangean_enabled or sangean_wake_enabled
   notify: Recargar Nginx
 
 - name: Eliminar sitio Nginx por defecto del SO

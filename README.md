@@ -82,9 +82,27 @@ Operaciones automatizadas: El playbook compila la estructura de directorios en /
 
 ---
 
-## Audio Multiroom: Snapcast + Soloist (rol `04_snapcast`)
+## Audio Multiroom: Snapcast + Soloist (roles `04_snapcast`, `05_icecast_bridge`, `06_sangean`)
 
 La Raspberry actúa como **hub de distribución de audio**: recibe Spotify Connect vía Soloist y lo reparte por Snapcast a los clientes de la LAN. No reproduce sonido localmente.
+
+El área se separa en tres roles, de más genérico a más específico:
+
+- **`04_snapcast`** — el hub en sí: sesión de Soloist, Snapserver, Snapweb y el
+  control script de metadata. No sabe nada de Icecast ni de la Sangean.
+- **`05_icecast_bridge`** — el stream HTTP por Icecast/darkice para equipos que no
+  hablan Snapcast. No tiene ninguna referencia a la Sangean en su código (la
+  menciona solo como ejemplo, en un comentario); si mañana aparece otro equipo que
+  necesite un stream ICY, es este rol el que sirve.
+- **`06_sangean`** — todo lo específico de la Sangean WFR-28: el cliente fantasma
+  en Snapweb y el encendido automático por DLNA. Es el único de los tres pensado
+  para desaparecer del todo si se cambia de equipo (ver
+  [Cómo dar de baja la Sangean](#cómo-dar-de-baja-la-sangean)).
+
+`site.yml` los corre en ese orden porque `05_icecast_bridge` depende de variables
+del hub (`soloist_user`) y `06_sangean` depende de una variable del puente
+(`icecast_mount`, para armar la URL que empuja por DLNA) — no hay `meta/main.yml`
+entre ellos, es orden manual como el resto del playbook.
 
 ### Cadena de audio
 
@@ -238,7 +256,7 @@ control y audio funcionando, con `101 Switching Protocols` en ambos endpoints.
 **Sin verificar todavia:** Snapweb instalado como PWA (trae `manifest.webmanifest`)
 conviviendo con el flujo de login por redireccion de Access.
 
-### Stream HTTP para radios de internet (Icecast + darkice)
+### Stream HTTP para radios de internet (Icecast + darkice) — rol `05_icecast_bridge`
 
 Para equipos que no hablan snapcast — una Sangean WFR-28, por ejemplo — el rol
 publica ademas el audio como **stream MP3** que se sintoniza como si fuera una
@@ -274,6 +292,14 @@ Dos detalles que cuestan encontrar:
 HEAD localmente**. Existe porque Icecast responde `400` a cualquier HEAD, y
 algunos equipos validan la URI con un HEAD antes de aceptarla: la Sangean lo
 hace, y por DLNA fallaba con `errorCode 716` sin llegar a mirar el contenido.
+
+Vive físicamente en `01_infra/templates/nginx/` (ahí es donde se despliega
+Nginx), pero es propiedad de facto de `06_sangean`: es la única razón de que
+exista. Por eso `01_infra` lo despliega bajo
+`when: sangean_enabled or sangean_wake_enabled` en vez de incondicional — si se
+da de baja la Sangean, este vhost deja de publicarse solo.
+
+### La Sangean — rol `06_sangean`
 
 #### Limites conocidos de la Sangean WFR-28
 
@@ -385,13 +411,36 @@ player, `3` FM, `4` AUX in, `5` DMR. El ultimo no aparece en el menu: se entra
 solo cuando algo le empuja contenido por DLNA, que es justo lo que hace este
 daemon.
 
+#### Cómo dar de baja la Sangean
+
+Si el equipo se reemplaza o se deja de usar, la baja es local a este rol:
+
+1. Sacar `06_sangean` de `roles:` en `site.yml`.
+2. Borrar `ansible/roles/06_sangean/`.
+3. Correr el playbook: enmascara el `snapclient` fantasma que ya no se despliega
+   más (queda deshabilitado, no hace falta tocarlo a mano) y detiene/deshabilita
+   `snapclient-sangean.service` y `sangean-wake.service` al dejar de gestionarlos
+   — si se prefiere no depender de eso, `sudo systemctl disable --now
+   snapclient-sangean sangean-wake` antes de correr.
+
+El hub (`04_snapcast`) y el puente (`05_icecast_bridge`) no se tocan: el stream
+HTTP sigue disponible para cualquier otro equipo que lo necesite. El vhost
+`stream-lan` (en `01_infra`) deja de desplegarse solo, por la condición descrita
+en [El shim de nginx](#el-shim-de-nginx) — no hace falta editar `01_infra` para
+la baja.
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.
 
 ### Variables principales
 
-Están en `roles/04_snapcast/defaults/main.yml` y se sobreescriben desde `group_vars`:
+Cada rol trae las suyas en su propio `defaults/main.yml`, y se sobreescriben desde
+`group_vars` igual que siempre — al estar los tres en el mismo play, cualquiera puede
+referenciar variables de los otros (p. ej. `sangean_stream_url`, en `06_sangean`, arma
+la URL con `icecast_mount`, que vive en `05_icecast_bridge`).
+
+**`roles/04_snapcast/defaults/main.yml`** (hub):
 
 | Variable | Default | Notas |
 |---|---|---|
@@ -402,6 +451,23 @@ Están en `roles/04_snapcast/defaults/main.yml` y se sobreescriben desde `group_
 | `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas arriba |
 | `soloist_ws_port` | `9876` | Puerto de la WS de Soloist, solo loopback |
 | `soloist_nice` / `soloist_cpu_weight` | `5` / `50` | Para que el audio no le gane CPU a servicios críticos |
+
+**`roles/05_icecast_bridge/defaults/main.yml`** (puente):
+
+| Variable | Default | Notas |
+|---|---|---|
+| `icecast_enabled` | `true` | Apaga todo el puente (y, en cascada, el vhost `stream-lan` y el wake de la Sangean) |
+| `icecast_mount` | `/soloist.mp3` | Path del stream MP3 |
+| `darkice_bitrate` | `128` | |
+
+**`roles/06_sangean/defaults/main.yml`** (Sangean):
+
+| Variable | Default | Notas |
+|---|---|---|
+| `sangean_enabled` | `true` | Cliente fantasma en Snapweb (mixer de volumen) |
+| `sangean_wake_enabled` | `true` | Encendido automático por DLNA |
+| `sangean_host` | `192.168.100.17` | IP de la radio en la LAN |
+| `sangean_wake_cooldown` | `60` | Segundos entre encendidos para no re-empujar por un parpadeo |
 
 ### Operación
 

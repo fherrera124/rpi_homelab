@@ -1,0 +1,25 @@
+---
+# --- Stream HTTP para radios de internet (Icecast + darkice) ---
+# Existe para equipos que no hablan snapcast, como la Sangean WFR-28: sintonizan
+# una URL como si fuera una emisora.
+#
+# darkice lee del monitor del sink (soloist_sink.monitor), asi que NO hace falta
+# un segundo FIFO ni un combine-sink: se cuelga del mismo audio que ya sale
+# hacia Snapcast.
+icecast_enabled: true
+icecast_port: 8000
+icecast_mount: /soloist.mp3
+icecast_source_user: source
+# MP3 y no opus: las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
+# generacion no existe.
+darkice_format: mp3
+darkice_bitrate: 128
+darkice_buffer_secs: 5
+darkice_stream_name: Soloist
+# Sin acentos a proposito: darkice no declara charset y terminan como mojibake.
+darkice_stream_description: Spotify Connect via Snapcast
+
+# Metadata ICY: el titulo que muestra la radio en pantalla.
+icymeta_idle_text: "{{ soloist_device_name }}"
+# Las pantallas de estas radios son chicas.
+icymeta_max_len: 60

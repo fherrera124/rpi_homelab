@@ -2,6 +2,11 @@
 # Las units de Soloist viven en la sesion systemd --user del usuario soloist,
 # por eso los handlers escalan a ese usuario y le pasan XDG_RUNTIME_DIR.
 - name: Recargar systemd de usuario
+  # Topic generico: 05_icecast_bridge tambien despliega units de usuario y
+  # necesita este mismo reload, pero un rol no puede notificar un handler de
+  # otro por nombre. Notificar "recargar systemd usuario soloist" en vez de
+  # este nombre.
+  listen: "recargar systemd usuario soloist"
   ansible.builtin.systemd_service:
     daemon_reload: true
     scope: user
@@ -42,42 +47,5 @@
 - name: Reiniciar timer de actualizacion
   ansible.builtin.systemd_service:
     name: update-soloist.timer
-    state: restarted
-    daemon_reload: true
-
-- name: Reiniciar Icecast
-  ansible.builtin.systemd_service:
-    name: icecast2
-    state: restarted
-
-- name: Reiniciar darkice
-  ansible.builtin.systemd_service:
-    name: soloist-darkice.service
-    state: restarted
-    scope: user
-  become: true
-  become_user: "{{ soloist_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
-
-- name: Reiniciar icymeta
-  ansible.builtin.systemd_service:
-    name: soloist-icymeta.service
-    state: restarted
-    scope: user
-  become: true
-  become_user: "{{ soloist_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
-
-- name: Reiniciar cliente de la Sangean
-  ansible.builtin.systemd_service:
-    name: snapclient-sangean.service
-    state: restarted
-    daemon_reload: true
-
-- name: Reiniciar despertador de la Sangean
-  ansible.builtin.systemd_service:
-    name: sangean-wake.service
     state: restarted
     daemon_reload: true

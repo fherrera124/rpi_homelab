@@ -1,0 +1,53 @@
+---
+# --- La Sangean como cliente de Snapweb ---
+# La radio se alimenta del stream de Icecast, no de snapcast, asi que Snapweb no
+# la ve y no hay forma de bajarle el volumen desde la interfaz. Este snapclient
+# no reproduce nada (--player file:filename=null): existe solo para ocupar una
+# fila, y su mixer traduce el slider a SOAP contra el RenderingControl de la
+# radio.
+#
+# Verificado en la WFR-28: SetVolume y SetMute cambian el volumen audible.
+# Limitaciones conocidas, inherentes al diseno:
+#  - La radio va segundos detras de los demas clientes (buffer de Icecast), y el
+#    slider de latencia de Snapweb sobre este cliente no hace nada porque mueve
+#    una reproduccion que se descarta.
+#  - La presencia miente: el proceso corre en la Pi, asi que figura conectado
+#    aunque la radio este apagada.
+#  - Pausa, next y prev siguen siendo del stream (una sola fuente Spotify); el
+#    equivalente por dispositivo es el mute, y ese si funciona.
+sangean_enabled: true
+sangean_host: 192.168.100.17
+sangean_upnp_port: 8080
+# El --hostID pasa a ser el id del cliente en snapserver; fijo, para que la
+# entrada sobreviva reinicios y se le pueda poner nombre de forma idempotente.
+sangean_client_id: sangean
+sangean_client_name: Sangean WFR-28
+# Corto a proposito: si la radio esta apagada no tiene sentido esperarla, y el
+# mixer no debe demorar la cadena de snapclient.
+sangean_soap_timeout: 4
+# Con el default (*:info) snapclient escribe "No chunks available" una vez por
+# segundo mientras el stream esta idle: ~86k lineas por dia en el journal, de un
+# cliente cuya cadena de audio ademas se descarta.
+sangean_log_filter: "*:warning"
+
+# --- Encendido automatico de la Sangean ---
+# Cuando el stream pasa a "playing", la radio se enciende sola: se le empuja la
+# URL de Icecast por DLNA (SetAVTransportURI + Play) al mismo endpoint que usa
+# sangean-mixer.sh. El push la saca de standby por su cuenta, en menos de 4 s
+# medidos, y no necesita PIN ni sesion.
+#
+# El precio es la pantalla: con la fuente empujada la radio nunca pide metadata
+# ICY, asi que no muestra el track, solo el dc:title estatico. A cambio siempre
+# suena esta URL, sin depender de cual fue la ultima emisora sintonizada.
+sangean_wake_enabled: true
+# Por nginx (puerto 80) y NO directo a Icecast: la radio valida la URI con un
+# HEAD antes de aceptarla, e Icecast contesta 400 a cualquier HEAD. Apuntado al
+# 8000 el push falla con errorCode 716 (resource not found) sin llegar a mirar
+# el audio. Quien contesta ese HEAD es el vhost stream-lan del rol 01_infra.
+# El titulo estatico que acompana al push sale de darkice_stream_name.
+sangean_stream_url: "http://{{ ansible_default_ipv4.address }}{{ icecast_mount }}"
+# Un parpadeo playing -> idle -> playing no debe encenderla dos veces.
+sangean_wake_cooldown: 60
+# Mas holgado que sangean_soap_timeout: aca nadie espera al otro lado, y la
+# radio recien salida de standby puede tardar en contestar.
+sangean_wake_timeout: 8

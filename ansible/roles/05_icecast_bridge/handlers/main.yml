@@ -1,0 +1,28 @@
+---
+# darkice e icymeta corren en la sesion systemd --user del usuario soloist
+# (mismo usuario que el hub). El reload de esa sesion lo notifican por el
+# topic "recargar systemd usuario soloist", cuyo handler vive en 04_snapcast.
+- name: Reiniciar Icecast
+  ansible.builtin.systemd_service:
+    name: icecast2
+    state: restarted
+
+- name: Reiniciar darkice
+  ansible.builtin.systemd_service:
+    name: soloist-darkice.service
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+
+- name: Reiniciar icymeta
+  ansible.builtin.systemd_service:
+    name: soloist-icymeta.service
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
