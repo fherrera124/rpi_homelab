@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+#
+# Shim de LAN para el stream de Icecast.
+#
+# Existe por un unico motivo: Icecast responde 400 a cualquier HEAD, y algunos
+# equipos validan la URI con un HEAD antes de aceptarla. La Sangean WFR-28 lo
+# hace: sin esto, SetAVTransportURI por DLNA falla con errorCode 716
+# (resource not found) sin llegar siquiera a mirar el contenido.
+#
+# server_name explicito para ganarle al default_server de delegate, que si no
+# se lleva los requests hechos contra la IP.
+server {
+    listen 80;
+    server_name {{ ansible_default_ipv4.address }} {{ ansible_hostname }} {{ ansible_hostname }}.local;
+
+    location = {{ icecast_mount | default('/soloist.mp3') }} {
+        default_type audio/mpeg;
+
+        # HEAD: se contesta local, sin tocar Icecast.
+        if ($request_method = HEAD) {
+            return 200;
+        }
+
+        proxy_pass http://127.0.0.1:{{ icecast_port | default(8000) }}{{ icecast_mount | default('/soloist.mp3') }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # El stream es continuo: sin esto nginx lo corta y llega a tirones.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}

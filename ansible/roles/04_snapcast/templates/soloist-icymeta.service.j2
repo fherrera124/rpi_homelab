@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Publica la metadata de Soloist como ICY en Icecast
+After=soloist-darkice.service
+Requires=soloist-darkice.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/soloist/icecast.env
+ExecStart=/usr/local/bin/soloist-icymeta.py \
+  --ws-port={{ soloist_ws_port }} \
+  --icecast-url=http://127.0.0.1:{{ icecast_port }} \
+  --mount={{ icecast_mount }} \
+  --user={{ icecast_source_user }} \
+  --idle-text="{{ icymeta_idle_text }}" \
+  --max-len={{ icymeta_max_len }}
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=default.target

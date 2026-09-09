@@ -193,6 +193,55 @@ control y audio funcionando, con `101 Switching Protocols` en ambos endpoints.
 **Sin verificar todavia:** Snapweb instalado como PWA (trae `manifest.webmanifest`)
 conviviendo con el flujo de login por redireccion de Access.
 
+### Stream HTTP para radios de internet (Icecast + darkice)
+
+Para equipos que no hablan snapcast — una Sangean WFR-28, por ejemplo — el rol
+publica ademas el audio como **stream MP3** que se sintoniza como si fuera una
+emisora: `http://<ip>:8000/soloist.mp3`.
+
+```
+soloist_sink.monitor  ->  darkice  ->  Icecast  ->  radios de la LAN
+```
+
+**darkice lee del monitor del sink**, asi que no hace falta un segundo FIFO ni un
+`combine-sink`: se cuelga del mismo audio que ya va hacia Snapcast. Se eligio
+darkice sobre ffmpeg por huella: 18 paquetes contra 169.
+
+**MP3 y no opus:** las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
+generacion no existe.
+
+#### Metadata en la pantalla de la radio
+
+`soloist-icymeta.py` publica el titulo en Icecast como ICY in-band, con formato
+`Artista - Titulo` (y `Show - Episodio` para podcasts, que no traen artistas).
+
+Dos detalles que cuestan encontrar:
+
+- **`charset=UTF-8` es obligatorio** en `/admin/metadata`. Sin el, Icecast
+  reinterpreta el UTF-8 y `Mienteme` llega a la radio como `MiÃ©nteme`.
+- Icecast **pierde la metadata al reiniciar**, y el script solo publica cuando el
+  titulo cambia. Por eso reenvia igual cada 60s: si no, el titulo se queda vacio
+  hasta el siguiente tema.
+
+#### El shim de nginx
+
+`nginx/stream-lan.j2` publica el mismo stream en el puerto 80 y **contesta los
+HEAD localmente**. Existe porque Icecast responde `400` a cualquier HEAD, y
+algunos equipos validan la URI con un HEAD antes de aceptarla: la Sangean lo
+hace, y por DLNA fallaba con `errorCode 716` sin llegar a mirar el contenido.
+
+#### Limites conocidos de la Sangean WFR-28
+
+Verificado sobre el equipo, para no volver a intentarlo:
+
+- **No muestra caratula.** Se probaron cuatro variantes de DIDL-Lite
+  (`musicTrack` y `audioBroadcast`, con y sin `dlna:profileID=JPEG_TN`, con
+  `protocolInfo` DLNA) y una imagen local por HTTP plano: nunca la descarga.
+- **Sus botones fisicos no controlan el transporte DLNA** ni emiten eventos
+  GENA, aunque el eventing funciona (un `Pause` por SOAP si dispara evento).
+- Se la puede **despertar de standby y ponerla a reproducir** con
+  `SetAVTransportURI` + `Play` (~1.4s).
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.

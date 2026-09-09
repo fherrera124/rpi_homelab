@@ -31,6 +31,15 @@
       - acl
     state: present
 
+- name: Instalar Icecast y darkice para el stream HTTP
+  ansible.builtin.apt:
+    pkg:
+      - icecast2
+      # darkice y no ffmpeg: 18 paquetes contra 169, y lee PulseAudio nativo.
+      - darkice
+    state: present
+  when: icecast_enabled
+
 - name: Crear usuario de sistema para la sesion de audio
   ansible.builtin.user:
     name: "{{ soloist_user }}"
@@ -216,6 +225,105 @@
     name: snapserver
     enabled: true
     state: started
+
+# --- Stream HTTP para radios de internet ---
+
+- name: Verificar que la password de Icecast esta en el vault
+  ansible.builtin.assert:
+    that:
+      - vault_icecast_source_password is defined
+      - vault_icecast_source_password | length > 0
+    fail_msg: >-
+      Falta vault_icecast_source_password. Agregala con:
+      ansible-vault edit group_vars/all/vault.yml
+  when: icecast_enabled
+
+- name: Desplegar configuracion de Icecast
+  ansible.builtin.template:
+    src: icecast.xml.j2
+    dest: /etc/icecast2/icecast.xml
+    owner: root
+    group: icecast
+    mode: '0640'
+  when: icecast_enabled
+  notify: Reiniciar Icecast
+
+- name: Habilitar el arranque de Icecast en Debian
+  ansible.builtin.lineinfile:
+    path: /etc/default/icecast2
+    regexp: '^ENABLE='
+    line: 'ENABLE=true'
+  when: icecast_enabled
+  notify: Reiniciar Icecast
+
+- name: Desplegar configuracion de darkice
+  ansible.builtin.template:
+    src: darkice.cfg.j2
+    dest: /etc/darkice.cfg
+    owner: root
+    group: "{{ soloist_user }}"
+    mode: '0640'
+  when: icecast_enabled
+  notify: Reiniciar darkice
+
+- name: Desplegar credencial de Icecast para el publicador de metadata
+  ansible.builtin.template:
+    src: icecast-env.j2
+    dest: /etc/soloist/icecast.env
+    owner: root
+    group: "{{ soloist_user }}"
+    mode: '0640'
+  no_log: true
+  when: icecast_enabled
+  notify: Reiniciar icymeta
+
+- name: Desplegar el publicador de metadata ICY
+  ansible.builtin.template:
+    src: soloist-icymeta.py.j2
+    dest: /usr/local/bin/soloist-icymeta.py
+    owner: root
+    group: root
+    mode: '0755'
+  when: icecast_enabled
+  notify: Reiniciar icymeta
+
+- name: Desplegar units de darkice e icymeta
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ soloist_home }}/.config/systemd/user/{{ item }}"
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0644'
+  loop:
+    - soloist-darkice.service
+    - soloist-icymeta.service
+  when: icecast_enabled
+  notify:
+    - Recargar systemd de usuario
+    - Reiniciar darkice
+    - Reiniciar icymeta
+
+- name: Habilitar Icecast
+  ansible.builtin.systemd_service:
+    name: icecast2
+    enabled: true
+    state: started
+  when: icecast_enabled
+
+- name: Habilitar darkice e icymeta
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+  loop:
+    - soloist-darkice.service
+    - soloist-icymeta.service
+  when: icecast_enabled
 
 - name: Desplegar el renovador del binario de Soloist
   ansible.builtin.template:

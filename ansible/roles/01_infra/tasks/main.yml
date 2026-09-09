@@ -84,6 +84,7 @@
     - monitor-app
     - delegate
     - snapcast
+    - stream-lan
   notify: Recargar Nginx
 
 - name: Activar sitios de Nginx (Symlinks)
@@ -96,6 +97,7 @@
     - monitor-app
     - delegate
     - snapcast
+    - stream-lan
   notify: Recargar Nginx
 
 - name: Eliminar sitio Nginx por defecto del SO

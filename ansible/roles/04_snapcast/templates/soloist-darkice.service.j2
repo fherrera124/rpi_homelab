@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+[Unit]
+Description=darkice - publica el audio de Soloist como stream en Icecast
+After=soloist-pipe-sink.service
+Requires=soloist-pipe-sink.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/darkice -c /etc/darkice.cfg
+Restart=on-failure
+RestartSec=10
+# darkice pide prioridad de tiempo real para no perder muestras al capturar.
+# El limite duro del usuario suele ser 0, asi que igual avisa por log; con
+# bufferSecs={{ darkice_buffer_secs }} no se noto en la practica.
+LimitRTPRIO=99
+LimitNICE=-20
+
+[Install]
+WantedBy=default.target

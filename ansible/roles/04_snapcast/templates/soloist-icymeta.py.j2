@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# {{ ansible_managed }}
+#
+# Empuja la metadata de Soloist a Icecast como ICY in-band, para que las radios
+# de internet (Sangean / Frontier Silicon y similares) muestren que suena.
+#
+# darkice no puede hacerlo: captura audio en vivo y no sabe de canciones. La
+# metadata va aparte, al endpoint /admin/metadata de Icecast.
+#
+# Lee de "soloist ctl trace", el mismo mecanismo que usa el control script de
+# Snapcast. Verificado: Soloist acepta varios clientes WS a la vez, asi que los
+# dos consumidores conviven.
+
+import getopt
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+logger = logging.getLogger('soloist-icymeta')
+
+params = {
+    'soloist-bin': '{{ soloist_binary }}',
+    'ws-host': '127.0.0.1',
+    'ws-port': {{ soloist_ws_port }},
+    'icecast-url': 'http://127.0.0.1:{{ icecast_port }}',
+    'mount': '{{ icecast_mount }}',
+    'user': '{{ icecast_source_user }}',
+    'idle-text': '{{ icymeta_idle_text }}',
+    # Las pantallas de estas radios son chicas; mas largo que esto no aporta.
+    'max-len': {{ icymeta_max_len }},
+}
+
+
+def _dig(obj, *keys, default=None):
+    for key in keys:
+        if not isinstance(obj, dict) or key not in obj:
+            return default
+        obj = obj[key]
+    return obj
+
+
+def build_title(msg):
+    """Arma "Artista - Titulo" a partir de un evento playback_state."""
+    if msg.get('status') != 'playing':
+        return None
+
+    item = msg.get('item') or {}
+    name = _dig(item, 'decorations', 'identity', 'name')
+    if not name:
+        return None
+
+    artists = [
+        a for a in (
+            _dig(c, 'entity', 'decorations', 'identity', 'name')
+            for c in _dig(item, 'decorations', 'creators', default=[]) or []
+        ) if a
+    ]
+
+    if artists:
+        left = ', '.join(artists)
+    else:
+        # Los podcasts no traen creators: Soloist manda entity_type "episode" y
+        # el nombre del programa en parent. Ahi "Show - Episodio" es el
+        # equivalente natural de "Artista - Titulo".
+        left = _dig(item, 'decorations', 'parent', 'entity',
+                    'decorations', 'identity', 'name')
+
+    return f'{left} - {name}' if left else name
+
+
+def shorten(text, limit):
+    if len(text) <= limit:
+        return text
+    return text[:limit - 3].rstrip() + '...'
+
+
+class IcyMetadata(object):
+
+    # Si Icecast se reinicia pierde la metadata, y sin esto el titulo se
+    # quedaria vacio hasta el proximo cambio de tema. Cada tanto se reenvia
+    # aunque no haya cambiado, para que el mount se recupere solo.
+    REFRESH_SECS = 60
+
+    def __init__(self, params, password):
+        self._params = params
+        self._password = password
+        self._last = None
+        self._last_ts = 0.0
+
+    def push(self, song):
+        if song == self._last and (time.time() - self._last_ts) < self.REFRESH_SECS:
+            return
+        query = urllib.parse.urlencode({
+            'mount': self._params['mount'],
+            'mode': 'updinfo',
+            # Sin esto Icecast reinterpreta el UTF-8 y los acentos salen rotos:
+            # "Mienteme" se convierte en "MiÃ©nteme" en la pantalla de la radio.
+            'charset': 'UTF-8',
+            'song': song,
+        })
+        url = f"{self._params['icecast-url']}/admin/metadata?{query}"
+
+        request = urllib.request.Request(url)
+        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        mgr.add_password(None, self._params['icecast-url'],
+                         self._params['user'], self._password)
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPBasicAuthHandler(mgr))
+        try:
+            with opener.open(request, timeout=10) as resp:
+                resp.read()
+            if song != self._last:
+                logger.info('metadata -> %r', song)
+            self._last = song
+            self._last_ts = time.time()
+        except urllib.error.URLError as exc:
+            logger.error('fallo empujando metadata: %s', exc)
+
+    def run(self):
+        backoff = 1
+        while True:
+            proc = None
+            try:
+                proc = subprocess.Popen(
+                    [self._params['soloist-bin'], 'ctl',
+                     '-w', f"{self._params['ws-host']}:{self._params['ws-port']}",
+                     'trace'],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True, bufsize=1)
+                backoff = 1
+                for line in proc.stdout:
+                    brace = line.find('{')
+                    if brace < 0:
+                        continue
+                    try:
+                        msg = json.loads(line[brace:])
+                    except ValueError:
+                        continue
+                    if msg.get('type') != 'playback_state':
+                        continue
+                    title = build_title(msg)
+                    # Con Soloist en pausa se manda algo neutro, para no dejar
+                    # el ultimo tema colgado en la pantalla indefinidamente.
+                    self.push(shorten(title, self._params['max-len'])
+                              if title else self._params['idle-text'])
+            except Exception as exc:
+                logger.error('trace termino: %s', exc)
+            finally:
+                if proc:
+                    proc.terminate()
+
+            logger.warning('reconectando a Soloist en %ss', backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
+
+def usage(params):
+    print("""\
+Uso: soloist-icymeta.py [OPCION]...
+
+     --ws-host=ADDR       WS de soloist (default: %(ws-host)s)
+     --ws-port=PORT       Puerto de la WS (default: %(ws-port)s)
+     --icecast-url=URL    Base de Icecast (default: %(icecast-url)s)
+     --mount=PATH         Mount a actualizar (default: %(mount)s)
+     --user=USER          Usuario de Icecast (default: %(user)s)
+     --idle-text=TEXTO    Que mostrar sin reproduccion
+     --max-len=N          Recorte del titulo (default: %(max-len)s)
+
+     -h, --help           Esta ayuda
+     -d, --debug          Modo debug
+
+La contrasena se toma de la variable de entorno ICECAST_SOURCE_PASSWORD.
+""" % params)
+
+
+if __name__ == '__main__':
+    try:
+        opts, _ = getopt.getopt(
+            sys.argv[1:], 'hd',
+            ['help', 'debug', 'ws-host=', 'ws-port=', 'icecast-url=',
+             'mount=', 'user=', 'idle-text=', 'max-len=', 'soloist-bin='])
+    except getopt.GetoptError as ex:
+        print(f'{sys.argv[0]}: {ex}', file=sys.stderr)
+        usage(params)
+        sys.exit(2)
+
+    log_level = logging.INFO
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            usage(params)
+            sys.exit()
+        elif opt in ('-d', '--debug'):
+            log_level = logging.DEBUG
+        elif opt == '--ws-port':
+            params['ws-port'] = int(arg)
+        elif opt == '--max-len':
+            params['max-len'] = int(arg)
+        else:
+            params[opt.lstrip('-')] = arg
+
+    logging.basicConfig(stream=sys.stderr, level=log_level,
+                        format='%(asctime)s %(levelname)s: %(message)s')
+
+    password = os.environ.get('ICECAST_SOURCE_PASSWORD')
+    if not password:
+        print('Falta ICECAST_SOURCE_PASSWORD en el entorno', file=sys.stderr)
+        sys.exit(1)
+
+    IcyMetadata(params, password).run()

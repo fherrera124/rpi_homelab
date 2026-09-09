@@ -1,0 +1,63 @@
+<!-- {{ ansible_managed }} -->
+<!--
+  Configuracion minima: solo lo necesario para publicar el stream de Soloist.
+  El paquete Debian trae 244 lineas y declara listen-socket en 8000, 8080 y
+  8443; el 8080 ya lo ocupa monitor-app, asi que Icecast fallaba al bindearlo.
+  Aca se declara un unico puerto.
+-->
+<icecast>
+    <location>{{ icecast_location | default('Homelab') }}</location>
+    <admin>{{ icecast_admin_contact | default('admin@localhost') }}</admin>
+
+    <limits>
+        <clients>20</clients>
+        <sources>2</sources>
+        <queue-size>524288</queue-size>
+        <client-timeout>30</client-timeout>
+        <header-timeout>15</header-timeout>
+        <source-timeout>10</source-timeout>
+        <!-- Manda un buffer inicial al conectar: la radio arranca mas rapido,
+             a costa de unos segundos extra de latencia. -->
+        <burst-on-connect>1</burst-on-connect>
+        <burst-size>65535</burst-size>
+    </limits>
+
+    <authentication>
+        <source-password>{{ vault_icecast_source_password }}</source-password>
+        <relay-password>{{ vault_icecast_source_password }}</relay-password>
+        <admin-user>admin</admin-user>
+        <admin-password>{{ vault_icecast_source_password }}</admin-password>
+    </authentication>
+
+    <hostname>{{ ansible_default_ipv4.address }}</hostname>
+
+    <listen-socket>
+        <port>{{ icecast_port }}</port>
+    </listen-socket>
+
+    <http-headers>
+        <header name="Access-Control-Allow-Origin" value="*" />
+    </http-headers>
+
+    <paths>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel>
+        <logsize>10000</logsize>
+    </logging>
+
+    <security>
+        <chroot>0</chroot>
+        <changeowner>
+            <user>icecast2</user>
+            <group>icecast</group>
+        </changeowner>
+    </security>
+</icecast>

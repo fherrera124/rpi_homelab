@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+#
+# Toma el audio del monitor del sink de Soloist y lo publica como stream en
+# Icecast, para equipos que no hablan snapcast (radios de internet).
+#
+# Leer del monitor evita necesitar un segundo FIFO o un combine-sink: es el
+# mismo audio que ya va hacia Snapcast.
+[general]
+duration     = 0
+bufferSecs   = {{ darkice_buffer_secs }}
+reconnect    = yes
+
+[input]
+device        = pulseaudio
+paSourceName  = {{ soloist_combine_sink | default('soloist_sink') }}.monitor
+sampleRate    = {{ soloist_sink_rate }}
+bitsPerSample = 16
+channel       = {{ soloist_sink_channels }}
+
+[icecast2-0]
+format      = {{ darkice_format }}
+bitrateMode = cbr
+bitrate     = {{ darkice_bitrate }}
+# 127.0.0.1 y no "localhost": Icecast escucha solo en IPv4, y localhost
+# resuelve primero a ::1, con lo que darkice fallaba con "connect error [111]".
+server      = 127.0.0.1
+port        = {{ icecast_port }}
+password    = {{ vault_icecast_source_password }}
+mountPoint  = {{ icecast_mount.lstrip('/') }}
+name        = {{ darkice_stream_name }}
+description = {{ darkice_stream_description }}
+public      = no

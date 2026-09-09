@@ -65,10 +65,14 @@ if [ -n "$SOLOIST_UID" ]; then
   runuser -u soloist -- env "XDG_RUNTIME_DIR=/run/user/${SOLOIST_UID}" \
     systemctl --user disable --now soloist.service soloist-pipe-sink.service 2>/dev/null || true
 fi
-systemctl disable --now snapserver update-soloist.timer 2>/dev/null || true
+systemctl disable --now snapserver update-soloist.timer icecast2 2>/dev/null || true
+if [ -n "$SOLOIST_UID" ]; then
+  runuser -u soloist -- env "XDG_RUNTIME_DIR=/run/user/${SOLOIST_UID}" \
+    systemctl --user disable --now soloist-darkice.service soloist-icymeta.service 2>/dev/null || true
+fi
 
 echo "-> Purgando paquetes de audio..."
-apt purge -y snapserver pipewire pipewire-pulse wireplumber pulseaudio-utils 2>/dev/null || true
+apt purge -y snapserver pipewire pipewire-pulse wireplumber pulseaudio-utils icecast2 darkice 2>/dev/null || true
 
 echo "-> Eliminando binario, configuracion y unidades de Soloist..."
 rm -f /usr/local/bin/soloist
@@ -79,6 +83,10 @@ rm -f /etc/tmpfiles.d/snapcast-soloist.conf
 rm -f /etc/default/soloist
 rm -rf /etc/soloist
 rm -f /etc/snapserver.conf
+rm -f /etc/darkice.cfg
+rm -f /usr/local/bin/soloist-icymeta.py
+rm -rf /etc/icecast2
+rm -f /etc/nginx/sites-available/stream-lan /etc/nginx/sites-enabled/stream-lan
 rm -rf /run/snapcast
 
 echo "-> Eliminando usuario del sistema de audio..."
