@@ -112,7 +112,7 @@ El rol instala un *control script* de Snapcast en
 `/usr/share/snapserver/plug-ins/meta_soloist.py`, que publica en la API de Snapcast
 lo que Soloist esta reproduciendo (titulo, artista, album, caratula, duracion,
 posicion) y traduce en sentido inverso los comandos de transporte: los botones
-play/pause/next/prev/seek de Snapweb controlan Spotify de verdad.
+play/pause/next/prev de Snapweb controlan Spotify de verdad.
 
 Habla con Soloist a traves de `soloist ctl`, no con una libreria WebSocket de
 Python: es una dependencia menos que instalar en la Pi.
@@ -137,6 +137,22 @@ tocar permisos. Escucha solo en loopback.
 El volumen queda deliberadamente fuera: Snapcast ya tiene volumen por cliente, que es
 el que corresponde. Mapearlo a Soloist bajaria la fuente para todos los parlantes a
 la vez.
+
+**Snapweb 0.9.3 no dibuja barra de progreso.** El script publica `duration` y
+`position` correctamente, pero el bundle de Snapweb los parsea y los guarda en su
+modelo sin usarlos nunca: lo unico que renderiza del stream es `artUrl`, `title` y
+`artist`. `setPosition` no aparece ni una vez en el bundle, asi que `canSeek` tampoco
+habilita nada. 0.9.3 es la ultima version publicada y ninguna release menciona la
+funcion — no se arregla actualizando. Los campos se publican igual, para cualquier
+otro cliente de la API.
+
+**Por que hay un latido de un segundo (`tick_loop`).** `properties()` extrapola la
+posicion a partir de `position_ms` + `timestamp_ms`, pero eso solo corre al publicar,
+y Soloist emite `playback_state` unicamente en cambios de track o de estado.
+Publicando solo ahi, snapserver se quedaba con la foto tomada milisegundos despues
+del ultimo cambio y la servia congelada: `position` valia siempre ~0.07 s. El hilo
+`tick_loop` republica cada segundo mientras `playbackStatus` es `playing`; en pausa
+no publica nada.
 
 ### Exposicion externa (`snapcast.tunegociosmart.com.ar`)
 

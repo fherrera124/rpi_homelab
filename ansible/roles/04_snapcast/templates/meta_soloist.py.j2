@@ -59,6 +59,11 @@ REPEAT_MAP = {'off': 'none', 'context': 'playlist', 'track': 'track'}
 # navegador directo del CDN de Spotify, no las proxeamos.
 COVER_PREFERENCE = ('large', 'xlarge', 'default', 'small')
 
+# Cada cuantos segundos se reenvia la posicion mientras suena. Ver tick_loop:
+# no es un sondeo a Soloist, solo un latido para que snapserver refresque la
+# foto que tiene guardada.
+POSITION_INTERVAL = 1.0
+
 _stdout_lock = threading.Lock()
 
 
@@ -271,6 +276,32 @@ class SoloistControl(object):
             time.sleep(backoff)
             backoff = min(backoff * 2, 30)
 
+    def tick_loop(self):
+        """Reenvia las propiedades cada segundo mientras haya reproduccion.
+
+        properties() extrapola la posicion a partir de position_ms +
+        timestamp_ms, pero eso solo corre cuando publicamos, y hasta ahora
+        publicabamos unicamente al recibir un playback_state. Como Soloist
+        emite esos eventos solo en cambios de track o de estado, snapserver
+        se quedaba con la foto tomada milisegundos despues del ultimo cambio
+        y la servia congelada en Server.GetStatus y Stream.OnProperties.
+
+        En pausa no se publica: la posicion no avanza y no tiene sentido
+        despertar a los clientes por nada.
+        """
+        while True:
+            time.sleep(POSITION_INTERVAL)
+            with self._lock:
+                avanzando = (
+                    self._properties['playbackStatus'] == 'playing'
+                    and self._speed
+                    and self._position_ts
+                )
+            # Fuera del lock a proposito: _publish() llama a properties(),
+            # que lo vuelve a tomar.
+            if avanzando:
+                self._publish()
+
     # ---------------------------------------------- comandos de snapserver
 
     def control(self, cmd_line):
@@ -399,6 +430,9 @@ if __name__ == '__main__':
 
     tracer = threading.Thread(target=ctrl.trace_loop, daemon=True)
     tracer.start()
+
+    ticker = threading.Thread(target=ctrl.tick_loop, daemon=True)
+    ticker.start()
 
     for line in sys.stdin:
         line = line.strip()
