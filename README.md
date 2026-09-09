@@ -292,6 +292,54 @@ Limitaciones que no tienen arreglo dentro de este diseno:
 - **Pausa, next y prev siguen siendo del stream**, no del dispositivo: hay una
   sola fuente Spotify. El equivalente por dispositivo es el mute.
 
+#### Encendido automatico (`sangean-wake.py`)
+
+Cuando el stream pasa a `playing`, la radio se enciende sola: empezas a
+reproducir en Spotify y suena. El daemon se cuelga del puerto de control de
+snapserver y actua solo en la **transicion** a `playing`, con un cooldown para
+que un parpadeo no la encienda dos veces.
+
+**Va por push DLNA**: dos llamadas SOAP al mismo endpoint que ya usa
+`sangean-mixer.sh`, sin PIN ni sesion.
+
+```
+POST http://<radio>:8080/AVTransport/control   SetAVTransportURI  (URL + DIDL)
+POST http://<radio>:8080/AVTransport/control   Play
+```
+
+**El push la saca de standby por su cuenta.** Verificado partiendo de
+`netRemote.sys.power=0`: pasa a reproduciendo en **3,1 s** y entra en modo `5`
+(DMR), que por la FSAPI ni siquiera es seleccionable a mano.
+
+Antes de empujar pregunta `GetTransportInfo` + `GetMediaInfo`: si la radio ya
+esta en `PLAYING` con esa misma URL no hace nada (0,1 s), porque re-empujar
+`SetAVTransportURI` reinicia el stream y con el burst de Icecast eso es un corte
+audible por nada.
+
+**La URL apunta a nginx (puerto 80), no a Icecast (8000).** No es un detalle
+menor: la radio valida la URI con un `HEAD` antes de aceptarla e Icecast
+responde `400` a cualquier `HEAD`, asi que apuntada al 8000 falla con
+`errorCode 716` (*resource not found*) sin llegar a mirar el audio. Quien
+contesta ese `HEAD` es el vhost `stream-lan` del rol `01_infra`, que existe
+exactamente para esto.
+
+**El precio, elegido a conciencia: la pantalla queda muda.** Con la fuente
+empujada la radio nunca pide metadata ICY --verificado contra un proxy propio
+con las tres clases DIDL, `audioBroadcast` incluida: las tres conexiones
+llegaron sin `Icy-MetaData: 1`--, asi que `netRemote.play.info.text` queda vacio
+y solo se ve el `dc:title` estatico. Tampoco busca el `albumArtURI`. Y no se
+puede refrescar despues: `SetNextAVTransportURI` no existe en su SCPD, y
+re-empujar la URI reinicia el stream. Es todo o nada.
+
+A cambio es determinista: **siempre suena esta URL**, sin depender de cual fue
+la ultima emisora sintonizada. Ese era el problema del camino anterior por
+FSAPI, que solo sabia retomar la ultima escuchada.
+
+Los modos que publica el equipo: `0` Internet radio, `1` Spotify, `2` Music
+player, `3` FM, `4` AUX in, `5` DMR. El ultimo no aparece en el menu: se entra
+solo cuando algo le empuja contenido por DLNA, que es justo lo que hace este
+daemon.
+
 ### Vencimiento a los 90 días
 
 Los builds de Soloist expiran (salen con exit code 10). El rol instala `update-soloist.timer`, que corre los domingos a las 04:00 (con hasta 1h de jitter), compara checksums y sólo reinstala y reinicia si el binario cambió de verdad.

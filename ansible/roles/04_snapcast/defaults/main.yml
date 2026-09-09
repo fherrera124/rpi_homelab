@@ -121,3 +121,25 @@ sangean_soap_timeout: 4
 # segundo mientras el stream esta idle: ~86k lineas por dia en el journal, de un
 # cliente cuya cadena de audio ademas se descarta.
 sangean_log_filter: "*:warning"
+
+# --- Encendido automatico de la Sangean ---
+# Cuando el stream pasa a "playing", la radio se enciende sola: se le empuja la
+# URL de Icecast por DLNA (SetAVTransportURI + Play) al mismo endpoint que usa
+# sangean-mixer.sh. El push la saca de standby por su cuenta, en menos de 4 s
+# medidos, y no necesita PIN ni sesion.
+#
+# El precio es la pantalla: con la fuente empujada la radio nunca pide metadata
+# ICY, asi que no muestra el track, solo el dc:title estatico. A cambio siempre
+# suena esta URL, sin depender de cual fue la ultima emisora sintonizada.
+sangean_wake_enabled: true
+# Por nginx (puerto 80) y NO directo a Icecast: la radio valida la URI con un
+# HEAD antes de aceptarla, e Icecast contesta 400 a cualquier HEAD. Apuntado al
+# 8000 el push falla con errorCode 716 (resource not found) sin llegar a mirar
+# el audio. Quien contesta ese HEAD es el vhost stream-lan del rol 01_infra.
+# El titulo estatico que acompana al push sale de darkice_stream_name.
+sangean_stream_url: "http://{{ ansible_default_ipv4.address }}{{ icecast_mount }}"
+# Un parpadeo playing -> idle -> playing no debe encenderla dos veces.
+sangean_wake_cooldown: 60
+# Mas holgado que sangean_soap_timeout: aca nadie espera al otro lado, y la
+# radio recien salida de standby puede tardar en contestar.
+sangean_wake_timeout: 8

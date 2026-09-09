@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Despierta la Sangean cuando el stream de Snapcast pasa a playing
+After=snapserver.service network-online.target
+Wants=snapserver.service
+
+[Service]
+Type=simple
+# Usuario transitorio creado por systemd: no necesita acceso a nada del
+# sistema, solo red hacia snapserver y hacia la radio.
+DynamicUser=yes
+ExecStart=/usr/local/bin/sangean-wake.py
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

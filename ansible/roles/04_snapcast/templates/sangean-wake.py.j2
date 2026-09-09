@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# {{ ansible_managed }}
+#
+# Despierta la Sangean cuando el stream de Snapcast pasa a "playing", para que
+# empezar a reproducir en Spotify encienda la radio sola.
+#
+# Le empuja la URL de Icecast por DLNA (SetAVTransportURI + Play). Dos llamadas
+# SOAP al mismo endpoint que ya usa sangean-mixer.sh: no hace falta PIN, ni
+# CREATE_SESSION, ni tocar el modo del equipo.
+#
+# Verificado sobre la radio: el push la saca de standby por su cuenta. Pasa de
+# power=0 a reproduciendo en menos de 4 s, y entra en modo 5 (DMR), que por la
+# FSAPI ni siquiera es seleccionable a mano.
+#
+# El precio, medido y aceptado: en DLNA la pantalla queda muda. La radio nunca
+# pide metadata ICY cuando la fuente viene empujada -- probado con las tres
+# clases DIDL, audioBroadcast incluida -- asi que netRemote.play.info.text
+# queda vacio y solo se ve el dc:title estatico de aca abajo. Tampoco busca el
+# albumArtURI. Y no se puede refrescar despues: SetNextAVTransportURI no existe
+# en su SCPD, y re-empujar SetAVTransportURI reinicia el stream.
+#
+# A cambio es determinista: siempre suena esta URL, sin depender de cual fue la
+# ultima emisora sintonizada en la radio.
+
+import getopt
+import html
+import json
+import logging
+import re
+import socket
+import sys
+import time
+import urllib.error
+import urllib.request
+
+logger = logging.getLogger('sangean-wake')
+
+params = {
+    'snapserver-host': '127.0.0.1',
+    'control-port': {{ snapcast_tcp_port }},
+    'http-port': {{ snapcast_http_port }},
+    'stream-id': '{{ snapcast_stream_name }}',
+    'radio-host': '{{ sangean_host }}',
+    'radio-port': {{ sangean_upnp_port }},
+    'stream-url': '{{ sangean_stream_url }}',
+    # Unico texto que va a mostrar la pantalla, porque en DLNA no hay ICY.
+    'titulo': '{{ darkice_stream_name }}',
+    # Evita que un parpadeo playing -> idle -> playing la despierte dos veces.
+    'cooldown': {{ sangean_wake_cooldown }},
+    'timeout': {{ sangean_wake_timeout }},
+}
+
+NS = 'urn:schemas-upnp-org:service:AVTransport:1'
+# El push puede caer justo cuando la radio arranca su interfaz de red.
+REINTENTOS = 3
+# Medido en menos de 4 s desde standby; el margen es para una red cargada.
+ESPERA_MAX = 30
+
+
+def soap(accion, cuerpo=''):
+    """Llama a AVTransport. Devuelve el XML, o None si la radio no responde."""
+    envoltorio = (
+        '<?xml version="1.0"?>'
+        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"'
+        ' s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+        '<s:Body><u:%s xmlns:u="%s"><InstanceID>0</InstanceID>%s</u:%s>'
+        '</s:Body></s:Envelope>') % (accion, NS, cuerpo, accion)
+    peticion = urllib.request.Request(
+        'http://%s:%s/AVTransport/control' % (params['radio-host'],
+                                              params['radio-port']),
+        data=envoltorio.encode('utf-8'),
+        headers={'Content-Type': 'text/xml; charset="utf-8"',
+                 'SOAPAction': '"%s#%s"' % (NS, accion)})
+    try:
+        with urllib.request.urlopen(peticion, timeout=params['timeout']) as resp:
+            return resp.read().decode('utf-8', 'replace')
+    except (urllib.error.URLError, socket.timeout, OSError) as exc:
+        # Lo normal cuando la radio esta desenchufada o fuera de la red.
+        logger.debug('SOAP %s fallo: %s', accion, exc)
+        return None
+
+
+def campo(xml, etiqueta):
+    encontrado = re.search('<%s>(.*?)</%s>' % (etiqueta, etiqueta), xml or '', re.S)
+    return html.unescape(encontrado.group(1)) if encontrado else ''
+
+
+def didl():
+    return ('<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"'
+            ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
+            ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+            '<item id="1" parentID="0" restricted="1">'
+            '<dc:title>%s</dc:title>'
+            '<upnp:class>object.item.audioItem.audioBroadcast</upnp:class>'
+            '<res protocolInfo="http-get:*:audio/mpeg:*">%s</res>'
+            '</item></DIDL-Lite>') % (html.escape(params['titulo']),
+                                      html.escape(params['stream-url']))
+
+
+def ya_esta_sonando():
+    """True si la radio ya esta reproduciendo justo esta URL.
+
+    Hay que preguntarlo: re-empujar SetAVTransportURI reinicia el stream, y con
+    el burst de Icecast eso es un corte audible por nada.
+    """
+    if campo(soap('GetTransportInfo'), 'CurrentTransportState') != 'PLAYING':
+        return False
+    return campo(soap('GetMediaInfo'), 'CurrentURI') == params['stream-url']
+
+
+def despertar():
+    if ya_esta_sonando():
+        logger.info('la radio ya estaba con nuestro stream, no la toco')
+        return
+
+    cuerpo = ('<CurrentURI>%s</CurrentURI>'
+              '<CurrentURIMetaData>%s</CurrentURIMetaData>'
+              % (html.escape(params['stream-url']), html.escape(didl())))
+
+    inicio = time.time()
+    for intento in range(1, REINTENTOS + 1):
+        if (soap('SetAVTransportURI', cuerpo) is not None
+                and soap('Play', '<Speed>1</Speed>') is not None):
+            break
+        logger.warning('la radio no respondio al push (%d/%d)', intento, REINTENTOS)
+        time.sleep(2)
+    else:
+        logger.warning('la radio no responde, la dejo pasar')
+        return
+
+    while time.time() - inicio < ESPERA_MAX:
+        if campo(soap('GetTransportInfo'), 'CurrentTransportState') == 'PLAYING':
+            logger.info('radio sonando en %.1fs', time.time() - inicio)
+            return
+        time.sleep(1)
+    logger.warning('acepto el push pero no llego a PLAYING en %ss', ESPERA_MAX)
+
+
+def estado_inicial():
+    """Consulta el estado del stream para no disparar al arrancar."""
+    cuerpo = json.dumps({'id': 1, 'jsonrpc': '2.0',
+                         'method': 'Server.GetStatus'}).encode()
+    req = urllib.request.Request(
+        'http://%s:%s/jsonrpc' % (params['snapserver-host'], params['http-port']),
+        data=cuerpo, headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            datos = json.loads(resp.read())
+    except Exception as exc:
+        logger.warning('no pude leer el estado inicial: %s', exc)
+        return None
+    for stream in datos['result']['server']['streams']:
+        if stream['id'] == params['stream-id']:
+            return stream.get('status')
+    return None
+
+
+def escuchar(anterior):
+    """Se cuelga del puerto de control de snapserver hasta que se corte."""
+    ultimo_despertar = 0.0
+    sock = socket.create_connection(
+        (params['snapserver-host'], params['control-port']), timeout=10)
+    sock.settimeout(None)
+    logger.info('conectado al puerto de control, estado inicial %r', anterior)
+    buffer = b''
+    with sock:
+        while True:
+            trozo = sock.recv(4096)
+            if not trozo:
+                raise ConnectionError('snapserver cerro la conexion')
+            buffer += trozo
+            while b'\n' in buffer:
+                linea, buffer = buffer.split(b'\n', 1)
+                if not linea.strip():
+                    continue
+                try:
+                    mensaje = json.loads(linea)
+                except ValueError:
+                    continue
+                if mensaje.get('method') != 'Stream.OnUpdate':
+                    continue
+                stream = mensaje.get('params', {}).get('stream', {})
+                if stream.get('id') != params['stream-id']:
+                    continue
+                actual = stream.get('status')
+                if actual == anterior:
+                    continue
+                logger.info('stream %s -> %s', anterior, actual)
+                if actual == 'playing':
+                    if time.time() - ultimo_despertar < params['cooldown']:
+                        logger.info('dentro del cooldown, no despierto')
+                    else:
+                        ultimo_despertar = time.time()
+                        despertar()
+                anterior = actual
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format='%(asctime)s %(levelname)s: %(message)s')
+    opciones, _ = getopt.getopt(sys.argv[1:], '', [k + '=' for k in params])
+    for clave, valor in opciones:
+        clave = clave.lstrip('-')
+        params[clave] = int(valor) if isinstance(params[clave], int) else valor
+
+    espera = 1
+    anterior = estado_inicial()
+    while True:
+        try:
+            escuchar(anterior)
+            espera = 1
+        except Exception as exc:
+            logger.error('conexion perdida: %s', exc)
+        time.sleep(espera)
+        espera = min(espera * 2, 60)
+        anterior = estado_inicial()
+
+
+if __name__ == '__main__':
+    main()

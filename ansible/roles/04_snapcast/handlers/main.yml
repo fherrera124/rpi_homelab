@@ -75,3 +75,9 @@
     name: snapclient-sangean.service
     state: restarted
     daemon_reload: true
+
+- name: Reiniciar despertador de la Sangean
+  ansible.builtin.systemd_service:
+    name: sangean-wake.service
+    state: restarted
+    daemon_reload: true

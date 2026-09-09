@@ -454,3 +454,33 @@
     - sangean_enabled
     - sangean_current_name is defined
     - sangean_current_name != sangean_client_name
+
+# --- Encendido automatico de la Sangean ---
+
+- name: Desplegar el despertador de la Sangean
+  ansible.builtin.template:
+    src: sangean-wake.py.j2
+    dest: /usr/local/bin/sangean-wake.py
+    owner: root
+    group: root
+    mode: '0755'
+  when: sangean_wake_enabled
+  notify: Reiniciar despertador de la Sangean
+
+- name: Desplegar el unit del despertador
+  ansible.builtin.template:
+    src: sangean-wake.service.j2
+    dest: /etc/systemd/system/sangean-wake.service
+    owner: root
+    group: root
+    mode: '0644'
+  when: sangean_wake_enabled
+  notify: Reiniciar despertador de la Sangean
+
+- name: Habilitar el despertador de la Sangean
+  ansible.builtin.systemd_service:
+    name: sangean-wake.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: sangean_wake_enabled
