@@ -36,7 +36,35 @@ La información sensible (tokens de Cloudflare, claves API) se almacena cifrada.
 ```bash
 EDITOR=nano ansible-vault edit group_vars/vault.yml
 ```
-**4. Comandos útiles de test**
+
+**4. Código fuente cifrado (`apps/**`, git-crypt)**
+
+El código propio bajo `apps/` (`portfolio`, `monitor-app`) se cifra en el repositorio con
+[git-crypt](https://github.com/AGWA/git-crypt) — declarado en `.gitattributes` como
+`apps/** filter=git-crypt diff=git-crypt`. Es una herramienta distinta de Ansible Vault:
+Vault cifra variables de Ansible con una contraseña; git-crypt cifra archivos del árbol de
+trabajo con una llave binaria, de forma transparente en cada `git add`/`checkout`. Así el
+código de las apps nunca queda en texto plano en GitHub, sin necesitar que el repo sea privado.
+
+Es modo llave simétrica (no GPG): una única llave de 256 bits, sin usuarios asociados. Esa
+llave **vive solo dentro de `.git/`** del checkout donde se corrió `git-crypt init` — no es
+un archivo del repositorio, así que **no viaja con `git clone`**. Un clone nuevo ve `apps/**`
+como binario cifrado (arranca con la firma `\0GITCRYPT\0`) hasta desbloquearlo con una copia
+exportada de la llave:
+
+```bash
+# Aplicar un archivo de llave exportado (deja apps/** en texto plano en este checkout):
+git-crypt unlock /ruta/al/archivo-de-llave
+
+# Exportar una copia portable de la llave, desde un checkout ya desbloqueado:
+git-crypt export-key /ruta/de/salida
+```
+
+Guardar el archivo exportado en un gestor de contraseñas (o backup fuera del repo) es
+responsabilidad de quien lo genera — **nunca commitear la llave**, y perderla sin backup deja
+`apps/**` irrecuperable en cualquier clone nuevo.
+
+**5. Comandos útiles de test**
 ```bash
 # Solo lee todos tus archivos YAML y verifica estructura y formato
 ansible-playbook site.yml --syntax-check --ask-vault-pass
@@ -44,7 +72,8 @@ ansible-playbook site.yml --syntax-check --ask-vault-pass
 ansible-playbook site.yml --check --ask-vault-pass
 #Muestra qué líneas de texto se borrarían o agregarían en el servidor, tal como si fuera un git diff
 ansible-playbook site.yml --check --diff --ask-vault-pass
-**5. Ejecución del Playbook**
+```
+**6. Ejecución del Playbook**
 Para aprovisionar un nodo desde cero o aplicar deltas de configuración, ejecutar el siguiente comando desde la raíz del repositorio local:
 ```bash
 ansible-playbook --ask-vault-pass
