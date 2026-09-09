@@ -351,3 +351,106 @@
     enabled: true
     state: started
     daemon_reload: true
+
+# --- La Sangean como cliente de Snapweb ---
+
+- name: Instalar snapclient para el cliente fantasma de la Sangean
+  ansible.builtin.apt:
+    pkg: snapclient
+    state: present
+  when: sangean_enabled
+
+# El paquete trae su propio snapclient.service y lo deja habilitado: sin esto
+# aparece un cliente "rpi2" en Snapweb sacando audio por el jack de la placa,
+# que en un hub de distribucion no tiene ningun sentido.
+- name: Enmascarar el snapclient por defecto del paquete
+  ansible.builtin.systemd_service:
+    name: snapclient.service
+    state: stopped
+    enabled: false
+    masked: true
+  when: sangean_enabled
+
+- name: Desplegar el mixer que traduce el slider a SOAP
+  ansible.builtin.template:
+    src: sangean-mixer.sh.j2
+    dest: /usr/local/bin/sangean-mixer.sh
+    owner: root
+    group: root
+    mode: '0755'
+  when: sangean_enabled
+  notify: Reiniciar cliente de la Sangean
+
+- name: Desplegar el unit del cliente de la Sangean
+  ansible.builtin.template:
+    src: snapclient-sangean.service.j2
+    dest: /etc/systemd/system/snapclient-sangean.service
+    owner: root
+    group: root
+    mode: '0644'
+  when: sangean_enabled
+  notify: Reiniciar cliente de la Sangean
+
+- name: Habilitar el cliente de la Sangean
+  ansible.builtin.systemd_service:
+    name: snapclient-sangean.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: sangean_enabled
+
+- name: Aplicar cambios del cliente antes de nombrarlo
+  ansible.builtin.meta: flush_handlers
+
+- name: Esperar a que el cliente se registre en Snapserver
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ snapcast_http_port }}/jsonrpc"
+    method: POST
+    body_format: json
+    body:
+      id: 1
+      jsonrpc: "2.0"
+      method: Server.GetStatus
+  register: snapcast_status
+  until: >-
+    snapcast_status.json.result.server.groups | map(attribute='clients') | flatten
+    | selectattr('id', 'equalto', sangean_client_id) | list | length > 0
+  retries: 10
+  delay: 2
+  changed_when: false
+  failed_when: false
+  # Consulta de solo lectura: debe correr tambien en --check, o la tarea
+  # siguiente se evalua con la variable vacia.
+  check_mode: false
+  when: sangean_enabled
+
+- name: Determinar el nombre actual del cliente
+  ansible.builtin.set_fact:
+    sangean_current_name: >-
+      {{ snapcast_status.json.result.server.groups | default([])
+         | map(attribute='clients') | flatten
+         | selectattr('id', 'equalto', sangean_client_id)
+         | map(attribute='config') | map(attribute='name')
+         | first | default('') }}
+  when:
+    - sangean_enabled
+    - snapcast_status.json is defined
+
+# Sin esto el cliente hereda el hostname de la Pi y aparece como "rpi2", igual
+# que cualquier otro snapclient que corra ahi.
+- name: Nombrar el cliente de la Sangean en Snapweb
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ snapcast_http_port }}/jsonrpc"
+    method: POST
+    body_format: json
+    body:
+      id: 2
+      jsonrpc: "2.0"
+      method: Client.SetName
+      params:
+        id: "{{ sangean_client_id }}"
+        name: "{{ sangean_client_name }}"
+  when:
+    - sangean_enabled
+    - sangean_current_name is defined
+    - sangean_current_name != sangean_client_name

@@ -90,3 +90,34 @@ soloist_cpu_weight: 50
 
 # Chequeo semanal del binario.
 soloist_update_oncalendar: "Sun *-*-* 04:00:00"
+
+# --- La Sangean como cliente de Snapweb ---
+# La radio se alimenta del stream de Icecast, no de snapcast, asi que Snapweb no
+# la ve y no hay forma de bajarle el volumen desde la interfaz. Este snapclient
+# no reproduce nada (--player file:filename=null): existe solo para ocupar una
+# fila, y su mixer traduce el slider a SOAP contra el RenderingControl de la
+# radio.
+#
+# Verificado en la WFR-28: SetVolume y SetMute cambian el volumen audible.
+# Limitaciones conocidas, inherentes al diseno:
+#  - La radio va segundos detras de los demas clientes (buffer de Icecast), y el
+#    slider de latencia de Snapweb sobre este cliente no hace nada porque mueve
+#    una reproduccion que se descarta.
+#  - La presencia miente: el proceso corre en la Pi, asi que figura conectado
+#    aunque la radio este apagada.
+#  - Pausa, next y prev siguen siendo del stream (una sola fuente Spotify); el
+#    equivalente por dispositivo es el mute, y ese si funciona.
+sangean_enabled: true
+sangean_host: 192.168.100.17
+sangean_upnp_port: 8080
+# El --hostID pasa a ser el id del cliente en snapserver; fijo, para que la
+# entrada sobreviva reinicios y se le pueda poner nombre de forma idempotente.
+sangean_client_id: sangean
+sangean_client_name: Sangean WFR-28
+# Corto a proposito: si la radio esta apagada no tiene sentido esperarla, y el
+# mixer no debe demorar la cadena de snapclient.
+sangean_soap_timeout: 4
+# Con el default (*:info) snapclient escribe "No chunks available" una vez por
+# segundo mientras el stream esta idle: ~86k lineas por dia en el journal, de un
+# cliente cuya cadena de audio ademas se descarta.
+sangean_log_filter: "*:warning"

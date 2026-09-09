@@ -69,3 +69,9 @@
   become_user: "{{ soloist_user }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+
+- name: Reiniciar cliente de la Sangean
+  ansible.builtin.systemd_service:
+    name: snapclient-sangean.service
+    state: restarted
+    daemon_reload: true

@@ -234,13 +234,63 @@ hace, y por DLNA fallaba con `errorCode 716` sin llegar a mirar el contenido.
 
 Verificado sobre el equipo, para no volver a intentarlo:
 
-- **No muestra caratula.** Se probaron cuatro variantes de DIDL-Lite
-  (`musicTrack` y `audioBroadcast`, con y sin `dlna:profileID=JPEG_TN`, con
-  `protocolInfo` DLNA) y una imagen local por HTTP plano: nunca la descarga.
-- **Sus botones fisicos no controlan el transporte DLNA** ni emiten eventos
-  GENA, aunque el eventing funciona (un `Pause` por SOAP si dispara evento).
+- **No muestra caratula, y no es cuestion de tamano ni de formato.** Se probaron
+  cuatro variantes de DIDL-Lite (`musicTrack` y `audioBroadcast`, con y sin
+  `dlna:profileID=JPEG_TN`, con `protocolInfo` DLNA), con y sin `Stop` previo,
+  sirviendo un JPEG real desde la propia Pi. La radio *guarda* el `albumArtURI`
+  (lo devuelve intacto en `GetMediaInfo`) pero **nunca hace un solo pedido HTTP**
+  por la imagen.
+- **En modo DLNA no pide metadata ICY.** Puesta detras de un proxy que inyecta
+  `StreamUrl` in-band, sus tres conexiones (dos HEAD y un GET) llegaron sin
+  `Icy-MetaData: 1`. Hay dos canales de metadata excluyentes: empujada por DLNA
+  toma el titulo del DIDL, sintonizada como emisora toma el ICY.
+- **Icecast no transporta `StreamUrl`.** `/admin/metadata?...&url=...` responde
+  `200` con "Metadata update successful" pero descarta el parametro: el bloque
+  in-band solo lleva `StreamTitle`.
+- **No implementa `SetNextAVTransportURI`**: no figura en su SCPD.
+- **Los botones de transporte no llegan a UPnP.** Pausa, play, next y prev no
+  mueven el `TransportState` ni emiten GENA, aunque el eventing funciona (un
+  `Pause` por SOAP si dispara evento). El **boton de mute es la excepcion**: si
+  emite un evento de `RenderingControl`.
+- **`SetVolume` y `SetMute` si funcionan**, y cambian el volumen audible
+  mientras reproduce el stream (verificado a oido, no solo por el valor releido).
 - Se la puede **despertar de standby y ponerla a reproducir** con
   `SetAVTransportURI` + `Play` (~1.4s).
+
+#### La Sangean como cliente de Snapweb
+
+Como la radio se alimenta de Icecast y no de snapcast, Snapweb no la ve y no hay
+donde bajarle el volumen. El rol levanta un `snapclient` que **no reproduce
+nada** (`--player file:filename=null`) y existe solo para ocupar una fila; su
+`--mixer script` traduce el slider a SOAP contra el `RenderingControl` de la
+radio.
+
+```
+Snapweb  ->  snapserver  ->  snapclient (salida nula)  ->  sangean-mixer.sh  ->  SOAP
+```
+
+Tres cosas que cuestan una tarde si no se saben:
+
+- **El mixer recibe el volumen normalizado** (`--volume 0.550000`), no en
+  porcentaje. UPnP quiere un entero 0-100: sin convertir, la radio descarta el
+  `SetVolume` en silencio y parece que el slider no hiciera nada, mientras que el
+  mute funciona igual. Ese sintoma asimetrico es la pista.
+- **El paquete `snapclient` deja habilitado su propio `snapclient.service`**, que
+  arranca un cliente real sacando audio por el jack de la placa y aparece en
+  Snapweb como `rpi2`. El rol lo enmascara.
+- **Arrastrar el slider dispara decenas de invocaciones.** El mixer coalesce con
+  `flock`: cada invocacion deja el valor deseado en `$RUNTIME_DIRECTORY/deseado`
+  y solo la que gana el lock envia, releyendo hasta que se estabiliza.
+
+Limitaciones que no tienen arreglo dentro de este diseno:
+
+- La radio va **segundos detras** de los demas clientes por el buffer de Icecast,
+  y el slider de latencia de Snapweb sobre este cliente no hace nada porque mueve
+  una reproduccion que se descarta. Si comparten ambiente, hay eco.
+- **La presencia miente**: el proceso corre en la Pi, asi que figura conectado
+  aunque la radio este apagada.
+- **Pausa, next y prev siguen siendo del stream**, no del dispositivo: hay una
+  sola fuente Spotify. El equivalente por dispositivo es el mute.
 
 ### Vencimiento a los 90 días
 

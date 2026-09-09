@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Cliente fantasma que representa a la Sangean en Snapweb
+Documentation=https://github.com/badaix/snapcast
+After=snapserver.service network-online.target
+Wants=snapserver.service
+
+[Service]
+Type=simple
+# Usuario transitorio creado por systemd: no necesita acceso a nada del
+# sistema, solo red hacia snapserver y hacia la radio.
+DynamicUser=yes
+# El mixer deja aca el valor deseado del slider para poder coalescer.
+RuntimeDirectory=sangean-mixer
+RuntimeDirectoryMode=0750
+# No reproduce nada: la radio se alimenta de Icecast, no de snapcast. Este
+# cliente existe solo para ocupar una fila en Snapweb y traducir su slider a
+# SOAP contra la radio, con --player file:filename=null como salida nula.
+ExecStart=/usr/bin/snapclient \
+  --host 127.0.0.1 \
+  --hostID {{ sangean_client_id }} \
+  --player file:filename=null \
+  --mixer script:/usr/local/bin/sangean-mixer.sh \
+  --logsink stderr \
+  --logfilter {{ sangean_log_filter }}
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,75 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Mixer de snapclient para la Sangean. Snapclient lo invoca en cada cambio con
+# --volume <0.0-1.0> --mute <true|false>, y aca se traduce a SOAP contra el
+# RenderingControl de la radio.
+#
+# Tres cuidados que no son opcionales:
+#  - El volumen llega NORMALIZADO (0.550000), no en porcentaje. UPnP quiere un
+#    entero 0-100: sin convertir, la radio descarta el SetVolume en silencio y
+#    parece que el slider no hiciera nada, mientras que el mute si funciona.
+#  - Arrastrar el slider en Snapweb dispara decenas de invocaciones. Cada una
+#    deja el valor deseado en un archivo y solo la que gana el lock envia,
+#    releyendo hasta que se estabiliza. Asi el ultimo valor siempre llega sin
+#    ametrallar a la radio.
+#  - Si la radio esta apagada el SOAP falla. Se sale 0 igual: un error aca
+#    tumbaria el mixer de snapclient.
+set -u
+
+CTRL="http://{{ sangean_host }}:{{ sangean_upnp_port }}/RenderingControl/control"
+NS="urn:schemas-upnp-org:service:RenderingControl:1"
+STATE_DIR="${RUNTIME_DIRECTORY:-/run/sangean-mixer}"
+WANT="$STATE_DIR/deseado"
+LOCK="$STATE_DIR/lock"
+
+volume=""; mute=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --volume)   volume="${2:-}"; shift 2 ;;
+        --mute)     mute="${2:-}";   shift 2 ;;
+        --volume=*) volume="${1#*=}"; shift ;;
+        --mute=*)   mute="${1#*=}";   shift ;;
+        *)          shift ;;
+    esac
+done
+[ -n "$volume$mute" ] || exit 0
+
+# 0.550000 -> 55, con redondeo y recorte al rango que acepta UPnP.
+if [ -n "$volume" ]; then
+    volume="$(awk -v v="$volume" 'BEGIN {
+        p = int(v * 100 + 0.5)
+        if (p < 0)   p = 0
+        if (p > 100) p = 100
+        print p
+    }')"
+fi
+
+mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
+printf '%s %s\n' "$volume" "$mute" > "$WANT" 2>/dev/null || exit 0
+
+soap() {  # $1 = accion, $2 = argumentos propios de la accion
+    curl -s -o /dev/null -m {{ sangean_soap_timeout }} \
+        -H 'Content-Type: text/xml; charset="utf-8"' \
+        -H "SOAPAction: \"$NS#$1\"" \
+        -d "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:$1 xmlns:u=\"$NS\"><InstanceID>0</InstanceID><Channel>Master</Channel>$2</u:$1></s:Body></s:Envelope>" \
+        "$CTRL"
+}
+
+exec 9>"$LOCK" 2>/dev/null || exit 0
+flock -n 9 || exit 0   # ya hay una instancia enviando; deje mi valor y salgo
+
+last=""
+while :; do
+    cur="$(cat "$WANT" 2>/dev/null)"
+    [ "$cur" = "$last" ] && break
+    last="$cur"
+    v="${cur%% *}"
+    m="${cur##* }"
+    [ -n "$v" ] && soap SetVolume "<DesiredVolume>$v</DesiredVolume>"
+    case "$m" in
+        true)  soap SetMute "<DesiredMute>1</DesiredMute>" ;;
+        false) soap SetMute "<DesiredMute>0</DesiredMute>" ;;
+    esac
+done
+exit 0
