@@ -93,3 +93,39 @@ Para aplicar configuraciones nuevas o cambios en los enlaces simbólicos, siempr
 ```bash
 sudo systemctl reload nginx
 ```
+
+---
+
+## hls-proxy
+
+Proxy HLS para mandar películas a los Chromecast de la casa (versión
+catalogo de [hls-proxy](https://github.com/fherrera124/hls-proxy), repo
+privado). Solo se usa dentro de la LAN: `http://192.168.100.47:8090/`. No
+pasa por Nginx ni por Cloudflare.
+
+Lo instala `roles/03_apps/tasks/hls-proxy.yml`:
+
+- clona el repo en `/opt/rpi_homelab/apps/hls-proxy` con una deploy key de
+  solo lectura (`/root/.ssh/hls-proxy_deploy`), por `ssh.github.com:443`
+  porque desde la casa el puerto 22 de GitHub está bloqueado;
+- arma el `.venv` e instala con pip solo si cambió el código o falta la
+  instalación (en la Pi 2 tarda unos 2 minutos y medio);
+- escribe `ecosystem.local.json` con la IP y el puerto (`hls_proxy_env` en
+  `group_vars/all/vars.yml`) y levanta `hls-catalogo` con el PM2 de root.
+
+Para actualizar solo hls-proxy, desde `ansible/`:
+
+```bash
+ansible-playbook site.yml --tags hls-proxy --ask-vault-pass
+```
+
+**Primera instalación:** si la deploy key no está cargada en GitHub, el
+playbook falla al clonar y muestra la clave pública. Cargarla en el repo
+hls-proxy (Settings > Deploy keys, sin permiso de escritura) y volver a
+correrlo. La clave queda en `/root/.ssh`, que `teardown.sh` no borra: solo
+hay que volver a cargarla si se reinstala el sistema.
+
+```bash
+sudo pm2 logs hls-catalogo
+sudo pm2 restart hls-catalogo
+```

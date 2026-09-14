@@ -1,3 +1,18 @@
 homelab_path: "/opt/rpi_homelab"
 main_domain: "tunegociosmart.com.ar"
 delegate_target: "http://192.168.100.27:8000"
+
+# hls-proxy (versión catalogo). Repo privado: se clona con deploy key por el
+# puerto 443 de GitHub. Ver roles/03_apps/tasks/hls-proxy.yml.
+hls_proxy_repo: "ssh://git@ssh.github.com:443/fherrera124/hls-proxy.git"
+hls_proxy_version: "main"
+hls_proxy_path: "{{ homelab_path }}/apps/hls-proxy"
+hls_proxy_deploy_key: "/root/.ssh/hls-proxy_deploy"
+# Variables HLS_* de la Pi (ver README de hls-proxy).
+hls_proxy_env:
+  # IP con la que la tele llega al server.
+  HLS_PUBLIC_HOST: "{{ ansible_default_ipv4.address }}"
+  # 8080 lo usa monitor-app.
+  HLS_PORT: "8090"
+# Clave de host de GitHub, de https://api.github.com/meta.
+github_ssh_host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"

@@ -1,0 +1,108 @@
+---
+# hls-proxy, versión catalogo: proxy HLS para mandar películas a los
+# Chromecast de la casa. Se sirve solo en la LAN, en el puerto de
+# hls_proxy_env (sin Nginx ni Cloudflare).
+#
+# El repo es privado: se clona con una deploy key de solo lectura que se
+# genera en la Pi. La primera vez hay que cargarla en GitHub; si falta, la
+# tarea de clonado falla y muestra la clave.
+
+- name: Instalar dependencias del sistema (hls-proxy)
+  ansible.builtin.apt:
+    pkg:
+      - git
+      - python3-venv
+    state: present
+
+- name: Asegurar directorio SSH de root (hls-proxy)
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    mode: '0700'
+
+- name: Generar deploy key de solo lectura (hls-proxy)
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -N "" -C "hls-proxy deploy {{ ansible_hostname }}" -f {{ hls_proxy_deploy_key }}
+    creates: "{{ hls_proxy_deploy_key }}"
+
+# Desde la red de la casa el puerto 22 de GitHub está bloqueado: se clona
+# por ssh.github.com:443, que tiene la misma clave de host.
+- name: Registrar la clave de host de GitHub en el puerto 443 (hls-proxy)
+  ansible.builtin.known_hosts:
+    path: /root/.ssh/known_hosts
+    name: "[ssh.github.com]:443"
+    key: "[ssh.github.com]:443 {{ github_ssh_host_key }}"
+
+- name: Clonar o actualizar el repositorio (hls-proxy)
+  block:
+    - name: Clonar o actualizar el repositorio (hls-proxy)
+      ansible.builtin.git:
+        repo: "{{ hls_proxy_repo }}"
+        dest: "{{ hls_proxy_path }}"
+        version: "{{ hls_proxy_version }}"
+        key_file: "{{ hls_proxy_deploy_key }}"
+      register: hls_proxy_git
+  rescue:
+    - name: Leer la deploy key pública (hls-proxy)
+      ansible.builtin.slurp:
+        src: "{{ hls_proxy_deploy_key }}.pub"
+      register: hls_proxy_public_key
+
+    - name: Pedir que se cargue la deploy key en GitHub (hls-proxy)
+      ansible.builtin.fail:
+        msg: >-
+          No se pudo clonar {{ hls_proxy_repo }}: {{ ansible_failed_result.msg | default('') }}
+          Si es la primera instalación, cargar esta clave en GitHub (repo hls-proxy,
+          Settings > Deploy keys, sin permiso de escritura) y volver a correr el playbook:
+          {{ hls_proxy_public_key.content | b64decode | trim }}
+
+- name: Crear entorno virtual de Python (hls-proxy)
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ hls_proxy_path }}"
+    creates: "{{ hls_proxy_path }}/.venv/bin/python"
+  register: hls_proxy_venv
+
+- name: Revisar si hls-proxy está instalado en el entorno virtual
+  ansible.builtin.command:
+    cmd: .venv/bin/python -c "import hlsproxy.apps.catalogo"
+    chdir: "{{ hls_proxy_path }}"
+  register: hls_proxy_import
+  changed_when: false
+  failed_when: false
+
+# En la Pi 2 tarda unos 2 minutos y medio: solo cuando cambió el código o
+# falta la instalación.
+- name: Instalar hls-proxy y sus dependencias (hls-proxy)
+  ansible.builtin.command:
+    cmd: .venv/bin/pip install --progress-bar off -e .
+    chdir: "{{ hls_proxy_path }}"
+  when: hls_proxy_venv.changed or hls_proxy_git.changed or hls_proxy_import.rc != 0
+  register: hls_proxy_pip
+
+# ecosystem.config.js (del repo) lee de acá las variables HLS_* de la Pi.
+- name: Escribir variables de la Pi para PM2 (hls-proxy)
+  ansible.builtin.copy:
+    dest: "{{ hls_proxy_path }}/ecosystem.local.json"
+    content: "{{ hls_proxy_env | to_nice_json }}\n"
+    mode: '0644'
+  register: hls_proxy_env_file
+
+- name: Consultar hls-catalogo en PM2
+  ansible.builtin.command: pm2 describe hls-catalogo
+  register: hls_proxy_pm2
+  changed_when: false
+  failed_when: false
+
+- name: Levantar o reiniciar hls-catalogo en PM2
+  ansible.builtin.command:
+    cmd: pm2 startOrRestart ecosystem.config.js --update-env
+    chdir: "{{ hls_proxy_path }}"
+  when: >-
+    hls_proxy_pm2.rc != 0 or hls_proxy_git.changed or hls_proxy_pip.changed
+    or hls_proxy_env_file.changed
+  register: hls_proxy_pm2_start
+
+- name: Guardar estado de PM2 para reinicios (hls-proxy)
+  ansible.builtin.command: pm2 save
+  when: hls_proxy_pm2_start.changed
