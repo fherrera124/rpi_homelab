@@ -14,5 +14,7 @@ hls_proxy_env:
   HLS_PUBLIC_HOST: "{{ ansible_default_ipv4.address }}"
   # 8080 lo usa monitor-app.
   HLS_PORT: "8090"
+  # Omitir la validacion de certificados del CDN de video.
+  HLS_CDN_VERIFY_TLS: "false"
 # Clave de host de GitHub, de https://api.github.com/meta.
 github_ssh_host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
