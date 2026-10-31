@@ -13,9 +13,20 @@ EnvironmentFile=/etc/soloist/soloist.env
 # usuario de sistema resuelve a "/" y falla con "Permission denied".
 StateDirectory=soloist
 CacheDirectory=soloist
+# Crashpad deja <uuid>.lock en pending/ si Soloist no cierra limpio, y el
+# siguiente arranque falla con "open ...lock: File exists". Paramos y
+# reiniciamos el servicio en cada actualizacion, asi que es rutina. Un .dmp
+# real (reporte pendiente) no se toca.
+# STATE_DIRECTORY lo exporta systemd al proceso, pero no se expande en la linea
+# de comandos: de ahi el sh -c y el "$$" (systemd consume el primer "$").
+ExecStartPre=-/bin/sh -c 'find "$$STATE_DIRECTORY" -path "*/crashpad/pending/*.lock" -delete'
 ExecStart={{ soloist_binary }} --device-name ${DEVICE_NAME} --api-key ${SOLOIST_API_KEY} --pipewire-device soloist_sink --cache-size ${CACHE_MB} --ws 127.0.0.1:{{ soloist_ws_port }}
 Restart=on-failure
 RestartSec=10
+# Exit 10 = el build de Soloist vencio (a los 90 dias). Reiniciar no lo arregla
+# y lo haria en bucle cada 10 s; lo renueva update-soloist.timer, cuyo
+# "systemctl --user restart" tambien arranca una unit que quedo detenida.
+RestartPreventExitStatus=10
 # El audio no debe ganarle CPU a los servicios criticos del equipo.
 Nice={{ soloist_nice }}
 CPUWeight={{ soloist_cpu_weight }}
