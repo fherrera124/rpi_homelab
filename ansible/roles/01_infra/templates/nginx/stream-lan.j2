@@ -11,7 +11,7 @@
 # se lleva los requests hechos contra la IP.
 server {
     listen 80;
-    server_name {{ ansible_default_ipv4.address }} {{ ansible_hostname }} {{ ansible_hostname }}.local;
+    server_name {{ ansible_facts['default_ipv4']['address'] }} {{ ansible_facts['hostname'] }} {{ ansible_facts['hostname'] }}.local;
 
     location = {{ icecast_mount | default('/soloist.mp3') }} {
         default_type audio/mpeg;

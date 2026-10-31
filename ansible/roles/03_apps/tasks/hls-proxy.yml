@@ -22,7 +22,7 @@
 
 - name: Generar deploy key de solo lectura (hls-proxy)
   ansible.builtin.command:
-    cmd: ssh-keygen -t ed25519 -N "" -C "hls-proxy deploy {{ ansible_hostname }}" -f {{ hls_proxy_deploy_key }}
+    cmd: ssh-keygen -t ed25519 -N "" -C "hls-proxy deploy {{ ansible_facts['hostname'] }}" -f {{ hls_proxy_deploy_key }}
     creates: "{{ hls_proxy_deploy_key }}"
 
 # Desde la red de la casa el puerto 22 de GitHub está bloqueado: se clona

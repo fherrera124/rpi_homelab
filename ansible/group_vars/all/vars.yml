@@ -11,7 +11,7 @@ hls_proxy_deploy_key: "/root/.ssh/hls-proxy_deploy"
 # Variables HLS_* de la Pi (ver README de hls-proxy).
 hls_proxy_env:
   # IP con la que la tele llega al server.
-  HLS_PUBLIC_HOST: "{{ ansible_default_ipv4.address }}"
+  HLS_PUBLIC_HOST: "{{ ansible_facts['default_ipv4']['address'] }}"
   # 8080 lo usa monitor-app.
   HLS_PORT: "8090"
   # Omitir la validacion de certificados del CDN de video.

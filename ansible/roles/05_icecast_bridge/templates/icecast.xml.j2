@@ -29,7 +29,7 @@
         <admin-password>{{ vault_icecast_source_password }}</admin-password>
     </authentication>
 
-    <hostname>{{ ansible_default_ipv4.address }}</hostname>
+    <hostname>{{ ansible_facts['default_ipv4']['address'] }}</hostname>
 
     <listen-socket>
         <port>{{ icecast_port }}</port>
