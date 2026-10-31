@@ -138,10 +138,27 @@ opus. Antes se uso opus porque los ESP32 por wifi mostraban `audio starved` con 
 ~1,5 Mbps; FLAC queda en un punto intermedio **que no esta verificado en esos clientes**.
 Si aparece, `snapcast_codec: opus` lo revierte, a costa de fidelidad.
 
-**Que se conserva y que no.** Con volumen de Spotify al 100 % y a la misma tasa, la
-cadena Soloist → FLAC no altera las muestras. Dos limites que no son de este diseno:
-el slider de volumen de Spotify (y el volumen por cliente de Snapweb) escalan las
-muestras, y Spotify lossless llega como FLOAT32 desde Soloist y aqui baja a 16 bits.
+**Que se conserva y que no.** Con el volumen de Spotify al 100 % y a la misma tasa, la
+cadena Soloist → FLAC no altera las muestras. Tres limites:
+
+- **El slider de volumen de Spotify atenua el audio dentro de la Pi**, antes del FIFO.
+  Medido en `rpi2`: con el slider en una posicion intermedia el stream de Soloist estaba
+  en `pipewire-pulse` al 68 % (−10,15 dB) y despues al 80 %; con el slider al maximo,
+  100 %. Para Soloist, el volumen de Spotify *es* el volumen de ese stream: forzarlo a
+  100 % con `pactl` hace que emita `volume_changed 100` y el slider se vaya con el.
+  Por eso, sobre PipeWire, **hay que dejar el slider de Spotify en 100 %** y regular el
+  volumen en Snapweb o en cada cliente. Una alternativa que lo evitaria esta planteada
+  en [`docs/research/soloist-pulse-shim.md`](docs/research/soloist-pulse-shim.md)
+  (rama `research/soloist-pulse-shim`); no esta implementada.
+- **El volumen por cliente de Snapweb tambien escala las muestras**, pero en cada cliente,
+  despues de decodificar el FLAC: no afecta a los demas.
+- **El FIFO es de 16 bits.** Hoy Soloist entrega s16 para el catalogo normal, asi que no
+  se pierde nada. Spotify Lossless es FLAC de 24 bits / 44,1 kHz
+  ([9to5Google](https://9to5google.com/2025/09/10/spotify-finally-adds-lossless-24-bit-audio-quality/)):
+  cuando llegue a la region, Soloist lo entregara como FLOAT32 y aqui se reducira a
+  16 bits. Pasar a 24 requiere `soloist_sink_format: s24-32le`, `24` en el
+  `sampleformat` de snapserver y clientes que lo soporten; no esta probado.
+
 La rama MP3 para la Sangean es con perdida por limitacion de la radio.
 
 El FIFO se declara en `/etc/tmpfiles.d/` en lugar de crearlo un servicio: `/run` es tmpfs y se vacía en cada arranque, y así queda con dueño y permisos correctos **antes** de que arranquen snapserver y el pipe-sink. Si lo creara snapserver (que corre como `_snapserver`), el pipe-sink no podría escribirlo.
@@ -199,9 +216,10 @@ tocar permisos. Escucha solo en loopback.
   `Stream property canPause is false`. Por eso el script pone ambos en true cuando
   cualquiera de las dos acciones esta disponible.
 
-El volumen queda deliberadamente fuera: Snapcast ya tiene volumen por cliente, que es
-el que corresponde. Mapearlo a Soloist bajaria la fuente para todos los parlantes a
-la vez.
+El script no traduce el volumen: Snapcast ya tiene volumen por cliente, que es el que
+corresponde para balancear parlantes. Ojo que eso no significa que el volumen de Spotify
+no actue: Soloist lo aplica por su cuenta al stream dentro de la Pi y baja la fuente
+para todos los parlantes a la vez (ver *Que se conserva y que no*).
 
 **Snapweb 0.9.3 no dibuja barra de progreso.** El script publica `duration` y
 `position` correctamente, pero el bundle de Snapweb los parsea y los guarda en su
@@ -477,7 +495,7 @@ la URL con `icecast_mount`, que vive en `05_icecast_bridge`).
 |---|---|---|
 | `icecast_enabled` | `true` | Apaga todo el puente (y, en cascada, el vhost `stream-lan` y el wake de la Sangean) |
 | `icecast_mount` | `/soloist.mp3` | Path del stream MP3 |
-| `darkice_bitrate` | `128` | |
+| `darkice_bitrate` | `320` | MP3 CBR. 320 es el maximo del formato; sin verificar que la Sangean lo acepte (si no, bajar a 192 o 128) |
 
 **`roles/06_sangean/defaults/main.yml`** (Sangean):
 

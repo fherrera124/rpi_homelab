@@ -13,7 +13,9 @@ icecast_source_user: source
 # MP3 y no opus: las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
 # generacion no existe.
 darkice_format: mp3
-darkice_bitrate: 128
+# 320 kbps CBR es el maximo del MP3: esta rama es con perdida por limitacion de la
+# radio, asi que se minimiza. Sin verificar contra la Sangean; si no lo acepta, 192.
+darkice_bitrate: 320
 darkice_buffer_secs: 5
 darkice_stream_name: Soloist
 # Sin acentos a proposito: darkice no declara charset y terminan como mojibake.
