@@ -47,3 +47,7 @@
 - name: Guardar estado de PM2 para reinicios
   ansible.builtin.command: pm2 save
   when: pm2_status.changed
+
+- name: Instalar hls-proxy
+  ansible.builtin.import_tasks: hls-proxy.yml
+  tags: hls-proxy
