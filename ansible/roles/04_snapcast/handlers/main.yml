@@ -15,6 +15,17 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
 
+# pipewire-pulse es Requires= del pipe-sink y este de Soloist, asi que
+# reiniciarlo los reinicia en cascada (systemd propaga el restart).
+- name: Reiniciar PipeWire de Soloist
+  ansible.builtin.command: >-
+    systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
+  changed_when: true
+
 - name: Reiniciar Soloist
   ansible.builtin.systemd_service:
     name: soloist.service

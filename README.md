@@ -120,17 +120,29 @@ soloist  --pipewire-device soloist_sink
 pipewire-pulse + module-pipe-sink
    |
    v
-/run/snapcast/soloist   (FIFO s16le 48000 2ch, creado por systemd-tmpfiles)
+/run/snapcast/soloist   (FIFO s16le 44100 2ch, creado por systemd-tmpfiles)
    |
    v
-snapserver  ->  opus  ->  snapclients de la LAN (1704/1705/1780)
+snapserver  ->  flac  ->  snapclients de la LAN (1704/1705/1780)
                           + Snapweb en http://<ip>:1780
 ```
 
-Un solo stream en **opus** (~128 kbps) alcanza para todos los clientes: es lo que
-aguantan los ESP32 por wifi (con PCM a ~1,5 Mbps aparecen `audio starved`), y
-Snapweb tambien lo decodifica — su bundle incluye `opus-decoder` en WASM junto a
-`libflac.js`, verificado sobre el paquete instalado.
+Un solo stream en **flac**, sin perdida, a **44,1 kHz / 16 bits**: la tasa nativa de
+Spotify, para que no haya resampleo en ningun punto de la cadena. Para eso el rol
+tambien fija el reloj de PipeWire a esa tasa (`10-soloist-rate.conf`); sin eso el grafo
+corre a 48 kHz y el audio se resamplearia a la entrada y a la salida. Snapweb decodifica
+FLAC con `libflac.js` (verificado sobre el paquete instalado).
+
+**El costo es ancho de banda**: FLAC ronda 0,7-1 Mbps por cliente, contra ~128 kbps de
+opus. Antes se uso opus porque los ESP32 por wifi mostraban `audio starved` con PCM a
+~1,5 Mbps; FLAC queda en un punto intermedio **que no esta verificado en esos clientes**.
+Si aparece, `snapcast_codec: opus` lo revierte, a costa de fidelidad.
+
+**Que se conserva y que no.** Con volumen de Spotify al 100 % y a la misma tasa, la
+cadena Soloist → FLAC no altera las muestras. Dos limites que no son de este diseno:
+el slider de volumen de Spotify (y el volumen por cliente de Snapweb) escalan las
+muestras, y Spotify lossless llega como FLOAT32 desde Soloist y aqui baja a 16 bits.
+La rama MP3 para la Sangean es con perdida por limitacion de la radio.
 
 El FIFO se declara en `/etc/tmpfiles.d/` en lugar de crearlo un servicio: `/run` es tmpfs y se vacía en cada arranque, y así queda con dueño y permisos correctos **antes** de que arranquen snapserver y el pipe-sink. Si lo creara snapserver (que corre como `_snapserver`), el pipe-sink no podría escribirlo.
 
@@ -276,8 +288,8 @@ soloist_sink.monitor  ->  darkice  ->  Icecast  ->  radios de la LAN
 `combine-sink`: se cuelga del mismo audio que ya va hacia Snapcast. Se eligio
 darkice sobre ffmpeg por huella: 18 paquetes contra 169.
 
-**MP3 y no opus:** las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
-generacion no existe.
+**MP3 y no flac/opus:** las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
+generacion no existe. Esta rama es con perdida por limitacion de la radio.
 
 #### Metadata en la pantalla de la radio
 
@@ -452,7 +464,8 @@ la URL con `icecast_mount`, que vive en `05_icecast_bridge`).
 |---|---|---|
 | `soloist_device_name` | `Snapcast Hub RPi2` | Nombre en la app de Spotify |
 | `soloist_cache_mb` | `500` | El default de Soloist es ilimitado: sobre SD es desgaste y riesgo de llenar la partición |
-| `snapcast_codec` | `opus` | Lo decodifican tanto los ESP32 como Snapweb |
+| `snapcast_codec` | `flac` | Sin perdida. `opus` baja el ancho de banda a ~128 kbps si un cliente wifi no aguanta |
+| `soloist_sink_rate` | `44100` | Tasa del FIFO, de PipeWire y de snapserver; la nativa de Spotify |
 | `snapcast_buffer_ms` | `500` | |
 | `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas arriba |
 | `soloist_ws_port` | `9876` | Puerto de la WS de Soloist, solo loopback |

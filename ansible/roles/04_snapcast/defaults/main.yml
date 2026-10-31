@@ -24,17 +24,23 @@ soloist_device_name: "Snapcast Hub RPi2"
 # Tope de cache. El default de Soloist es ilimitado, inaceptable sobre una SD.
 soloist_cache_mb: 500
 
-# Formato del FIFO. Debe coincidir con snapcast_sampleformat.
+# Formato del FIFO. 44100 es la tasa nativa de Spotify: con otra, PipeWire tiene
+# que resamplear, y eso es una alteracion del audio que se evita de punta a
+# punta (ver tambien el reloj de PipeWire, templates/pipewire-rate.conf.j2).
+# 16 bits: segun foonerd/alsa_soloist_connect, Soloist decodifica lossy a S16 y
+# lossless a FLOAT32; este ultimo caso pierde resolucion al bajar a 16 bits.
 soloist_sink_format: s16le
-soloist_sink_rate: 48000
+soloist_sink_rate: 44100
 soloist_sink_channels: 2
 
-# Snapserver. opus (~128 kbps) es lo que aguantan los ESP32 por wifi: con PCM a
-# ~1,5 Mbps aparecen "audio starved". Snapweb tambien lo decodifica, su bundle
-# trae opus-decoder en WASM, asi que un unico stream sirve a todos los clientes.
+# Snapserver. flac: sin perdida, un unico stream para todos los clientes.
+# Cuesta ancho de banda (del orden de 0,7-1 Mbps por cliente, contra ~128 kbps
+# de opus): si algun cliente por wifi (ESP32) empieza a loguear "audio starved",
+# volver a snapcast_codec: opus es una variable, pero a costa de fidelidad.
+# El sampleformat se deriva del FIFO para que no puedan divergir.
 snapcast_stream_name: Soloist
-snapcast_codec: opus
-snapcast_sampleformat: "48000:16:2"
+snapcast_codec: flac
+snapcast_sampleformat: "{{ soloist_sink_rate }}:16:{{ soloist_sink_channels }}"
 snapcast_buffer_ms: 500
 snapcast_http_port: 1780
 snapcast_tcp_port: 1705

@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Reloj del grafo de PipeWire a la tasa del FIFO de Soloist ({{ soloist_sink_rate }} Hz).
+# Sin esto el grafo corre a 48000 y el audio de 44,1 kHz se resamplea dos veces.
+context.properties = {
+    default.clock.rate          = {{ soloist_sink_rate }}
+    default.clock.allowed-rates = [ {{ soloist_sink_rate }} ]
+}

@@ -115,6 +115,26 @@
     group: "{{ soloist_user }}"
     mode: '0755'
 
+- name: Crear directorio de configuracion de PipeWire
+  ansible.builtin.file:
+    path: "{{ soloist_home }}/.config/pipewire/pipewire.conf.d"
+    state: directory
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0755'
+
+# PipeWire corre su grafo a 48 kHz por defecto: con Soloist y el sink a 44,1 kHz
+# resampleria a la entrada y otra vez a la salida. Fijar el reloj a la tasa del
+# FIFO deja el audio sin tocar.
+- name: Fijar el reloj de PipeWire a la tasa del FIFO
+  ansible.builtin.template:
+    src: pipewire-rate.conf.j2
+    dest: "{{ soloist_home }}/.config/pipewire/pipewire.conf.d/10-soloist-rate.conf"
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0644'
+  notify: Reiniciar PipeWire de Soloist
+
 - name: Desplegar units de usuario
   ansible.builtin.template:
     src: "{{ item.src }}"
