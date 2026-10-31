@@ -8,22 +8,29 @@
     - "{{ homelab_path }}/apps/monitor-app"
     - "{{ homelab_path }}/apps/monitor-app/screenshots"
 
+# perms: false en los tres sync. rsync -a copiaria el modo del directorio fuente
+# (0775 en el checkout) y pisaria el 0755 que fijan las tareas file de arriba y
+# de 01_infra; cada corrida las alternaria, el sync del backend reportaria
+# cambio y se repetirian npm install y el reinicio de Monitor App.
 - name: Sincronizar frontend estatico (Portfolio)
   ansible.posix.synchronize:
     src: "../../apps/portfolio/"
     dest: "/var/www/portfolio/"
     delete: yes
+    perms: false
 
 - name: Sincronizar frontend estatico (Monitor App)
   ansible.posix.synchronize:
     src: "{{ playbook_dir }}/../apps/monitor-app/frontend/"
     dest: "/var/www/monitor-app/"
     delete: yes
+    perms: false
 
 - name: Sincronizar backend Node.js (Monitor App)
   ansible.posix.synchronize:
     src: "{{ playbook_dir }}/../apps/monitor-app/backend/"
     dest: "{{ homelab_path }}/apps/monitor-app/"
+    perms: false
     rsync_opts:
       - "--exclude=node_modules"
       - "--exclude=*.sqlite"
