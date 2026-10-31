@@ -11,6 +11,15 @@
       ansible-vault edit group_vars/all/vault.yml
   when: icecast_enabled
 
+- name: Instalar Icecast y darkice para el stream HTTP
+  ansible.builtin.apt:
+    pkg:
+      - icecast2
+      # darkice y no ffmpeg: 18 paquetes contra 169, y lee PulseAudio nativo.
+      - darkice
+    state: present
+  when: icecast_enabled
+
 - name: Desplegar configuracion de Icecast
   ansible.builtin.template:
     src: icecast.xml.j2

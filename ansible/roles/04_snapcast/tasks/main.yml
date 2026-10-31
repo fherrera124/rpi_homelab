@@ -31,15 +31,6 @@
       - acl
     state: present
 
-- name: Instalar Icecast y darkice para el stream HTTP
-  ansible.builtin.apt:
-    pkg:
-      - icecast2
-      # darkice y no ffmpeg: 18 paquetes contra 169, y lee PulseAudio nativo.
-      - darkice
-    state: present
-  when: icecast_enabled
-
 - name: Crear usuario de sistema para la sesion de audio
   ansible.builtin.user:
     name: "{{ soloist_user }}"
