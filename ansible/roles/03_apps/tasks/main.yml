@@ -16,37 +16,60 @@
 
 - name: Sincronizar frontend estatico (Monitor App)
   ansible.posix.synchronize:
-    src: "../../apps/monitor-app/frontend/"
+    src: "{{ playbook_dir }}/../apps/monitor-app/frontend/"
     dest: "/var/www/monitor-app/"
     delete: yes
 
 - name: Sincronizar backend Node.js (Monitor App)
   ansible.posix.synchronize:
-    src: "../../apps/monitor-app/backend/"
+    src: "{{ playbook_dir }}/../apps/monitor-app/backend/"
     dest: "{{ homelab_path }}/apps/monitor-app/"
     rsync_opts:
       - "--exclude=node_modules"
       - "--exclude=*.sqlite"
+      - "--exclude=*.db"
+      - "--exclude=*.db-*"
       - "--exclude=screenshots"
+  register: monitor_app_backend
+
+- name: Comprobar dependencias instaladas (Monitor App)
+  ansible.builtin.stat:
+    path: "{{ homelab_path }}/apps/monitor-app/node_modules"
+  register: monitor_app_modules
 
 - name: Instalar dependencias de la aplicación (Monitor App)
-  ansible.builtin.shell:
-    cmd: npm install --production
+  ansible.builtin.command:
+    cmd: npm install --omit=dev
     chdir: "{{ homelab_path }}/apps/monitor-app"
   environment:
     NODE_ENV: production
+  when: monitor_app_backend.changed or not monitor_app_modules.stat.exists
+  register: monitor_app_dependencies
+
+- name: Consultar Monitor App en PM2
+  ansible.builtin.command: pm2 describe monitor-app
+  register: monitor_app_pm2
+  check_mode: false
+  changed_when: false
+  failed_when: false
 
 - name: Levantar Monitor App en PM2
   ansible.builtin.command:
     cmd: pm2 start server.js --name "monitor-app"
     chdir: "{{ homelab_path }}/apps/monitor-app"
-  register: pm2_status
-  changed_when: "'monitor-app' not in pm2_status.stdout"
-  ignore_errors: yes
+  when: monitor_app_pm2.rc != 0
+  register: monitor_app_started
+
+- name: Reiniciar Monitor App si cambió el backend
+  ansible.builtin.command: pm2 restart monitor-app
+  when:
+    - monitor_app_pm2.rc == 0
+    - monitor_app_backend.changed or monitor_app_dependencies.changed
+  register: monitor_app_restarted
 
 - name: Guardar estado de PM2 para reinicios
   ansible.builtin.command: pm2 save
-  when: pm2_status.changed
+  when: monitor_app_started.changed or monitor_app_restarted.changed
 
 - name: Instalar hls-proxy
   ansible.builtin.import_tasks: hls-proxy.yml

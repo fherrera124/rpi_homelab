@@ -34,7 +34,7 @@ ssh user@192.168.100.47
 **3. Gestión de Secretos**
 La información sensible (tokens de Cloudflare, claves API) se almacena cifrada. Para auditar o modificar estas variables globales:
 ```bash
-EDITOR=nano ansible-vault edit group_vars/vault.yml
+EDITOR=nano ansible-vault edit group_vars/all/vault.yml
 ```
 
 **4. Código fuente cifrado (`apps/**`, git-crypt)**
@@ -79,6 +79,12 @@ Para aprovisionar un nodo desde cero o aplicar deltas de configuración, ejecuta
 ansible-playbook --ask-vault-pass
 ```
 Operaciones automatizadas: El playbook compila la estructura de directorios en /opt/rpi_homelab, inyecta los enlaces simbólicos de Nginx, transfiere el código fuente mediante rsync y emite las señales de reinicio a los demonios afectados.
+
+**7. Volver al estado base (`teardown.sh`)**
+`teardown.sh` (como root, en la Pi) deshace lo que aplica el playbook: nginx, PM2, cloudflared,
+las apps y el stack de audio completo (Soloist, Snapcast/Snapweb, Icecast/darkice y los
+servicios de la Sangean, incluido el desenmascarado de `snapclient.service`). Pide
+confirmación antes de empezar y deja la Pi lista para volver a correr el playbook.
 
 ---
 
@@ -536,6 +542,12 @@ sudo systemctl reload nginx
 ```
 
 ---
+
+## Monitor App
+
+El código que despliega Ansible está en `apps/monitor-app/`. La galería incluye
+paginación, filtros y borrado de las imágenes visibles. Ver el
+[detalle de funcionamiento, despliegue y pruebas](apps/monitor-app/README.md).
 
 ## hls-proxy
 
