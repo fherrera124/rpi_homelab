@@ -3,10 +3,10 @@
 # Existe para equipos que no hablan snapcast, como la Sangean WFR-28: sintonizan
 # una URL como si fuera una emisora.
 #
-# darkice lee del monitor del sink (soloist_sink.monitor), asi que NO hace falta
-# un segundo FIFO ni un combine-sink: se cuelga del mismo audio que ya sale
-# hacia Snapcast.
+# darkice publica el monitor de icecast_sink; lo que suena ahi lo pone el
+# snapclient de la Sangean (rol 06_sangean).
 icecast_enabled: true
+icecast_sink: icecast_sink
 icecast_port: 8000
 icecast_mount: /soloist.mp3
 icecast_source_user: source
@@ -17,9 +17,9 @@ darkice_format: mp3
 # radio, asi que se minimiza. Sin verificar contra la Sangean; si no lo acepta, 192.
 darkice_bitrate: 320
 darkice_buffer_secs: 5
-darkice_stream_name: Soloist
+darkice_stream_name: "{{ snapcast_main_stream_name }}"
 # Sin acentos a proposito: darkice no declara charset y terminan como mojibake.
-darkice_stream_description: Spotify Connect via Snapcast
+darkice_stream_description: Spotify y radio via Snapcast
 
 # Metadata ICY: el titulo que muestra la radio en pantalla.
 icymeta_idle_text: "{{ soloist_device_name }}"

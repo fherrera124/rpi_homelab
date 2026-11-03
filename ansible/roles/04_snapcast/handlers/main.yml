@@ -60,3 +60,20 @@
     name: update-soloist.timer
     state: restarted
     daemon_reload: true
+
+- name: Reiniciar MPD
+  ansible.builtin.systemd_service:
+    name: mpd.service
+    state: restarted
+
+- name: Reiniciar myMPD
+  ansible.builtin.systemd_service:
+    name: mympd.service
+    state: restarted
+    daemon_reload: true
+
+- name: Reiniciar ultimo-play
+  ansible.builtin.systemd_service:
+    name: ultimo-play.service
+    state: restarted
+    daemon_reload: true

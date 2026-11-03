@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Sink nulo de PulseAudio cuyo monitor publica darkice en Icecast
+After=pipewire-pulse.service
+Requires=pipewire-pulse.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pactl load-module module-null-sink sink_name={{ icecast_sink }} format={{ soloist_sink_format }} rate={{ soloist_sink_rate }} channels={{ soloist_sink_channels }}
+ExecStop=/usr/bin/pactl unload-module module-null-sink
+
+[Install]
+WantedBy=default.target

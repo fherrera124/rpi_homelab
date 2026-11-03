@@ -212,6 +212,9 @@
     path: /tmp/snapweb.deb
     state: absent
 
+- name: Radio por internet
+  ansible.builtin.import_tasks: radio.yml
+
 - name: Desplegar el control script de metadata
   ansible.builtin.template:
     src: meta_soloist.py.j2

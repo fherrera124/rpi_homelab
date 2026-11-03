@@ -82,33 +82,36 @@ Operaciones automatizadas: El playbook compila la estructura de directorios en /
 
 **7. Volver al estado base (`teardown.sh`)**
 `teardown.sh` (como root, en la Pi) deshace lo que aplica el playbook: nginx, PM2, cloudflared,
-las apps y el stack de audio completo (Soloist, Snapcast/Snapweb, Icecast/darkice y los
-servicios de la Sangean, incluido el desenmascarado de `snapclient.service`). Pide
+las apps y el stack de audio completo (Soloist, MPD/myMPD, Snapcast/Snapweb, Icecast/darkice
+y los servicios de la Sangean, incluido el desenmascarado de `snapclient.service`). Pide
 confirmación antes de empezar y deja la Pi lista para volver a correr el playbook.
 
 ---
 
 ## Audio Multiroom: Snapcast + Soloist (roles `04_snapcast`, `05_icecast_bridge`, `06_sangean`)
 
-La Raspberry actúa como **hub de distribución de audio**: recibe Spotify Connect vía Soloist y lo reparte por Snapcast a los clientes de la LAN. No reproduce sonido localmente.
+La Raspberry actúa como **hub de distribución de audio**: recibe Spotify Connect vía Soloist y radio por internet vía MPD, y los reparte por Snapcast a los clientes de la LAN. Todos los parlantes escuchan lo mismo, y gana el último que dio play. No reproduce sonido localmente.
 
 El área se separa en tres roles, de más genérico a más específico:
 
-- **`04_snapcast`** — el hub en sí: sesión de Soloist, Snapserver, Snapweb y el
-  control script de metadata. No sabe nada de Icecast ni de la Sangean.
+- **`04_snapcast`** — el hub en sí: sesión de Soloist, MPD + myMPD para la radio,
+  Snapserver con la fuente `Casa`, el árbitro `ultimo-play`, Snapweb y el control
+  script de metadata. No sabe nada de Icecast ni de la Sangean.
 - **`05_icecast_bridge`** — el stream HTTP por Icecast/darkice para equipos que no
-  hablan Snapcast. No tiene ninguna referencia a la Sangean en su código (la
-  menciona solo como ejemplo, en un comentario); si mañana aparece otro equipo que
-  necesite un stream ICY, es este rol el que sirve.
-- **`06_sangean`** — todo lo específico de la Sangean WFR-28: el cliente fantasma
-  en Snapweb y el encendido automático por DLNA. Es el único de los tres pensado
-  para desaparecer del todo si se cambia de equipo (ver
+  hablan Snapcast: publica lo que suene en el sink `icecast_sink`. No tiene
+  ninguna referencia a la Sangean en su código (la menciona solo como ejemplo, en
+  un comentario); si mañana aparece otro equipo que necesite un stream ICY, es
+  este rol el que sirve.
+- **`06_sangean`** — todo lo específico de la Sangean WFR-28: el cliente que
+  reproduce `Casa` en `icecast_sink` y ocupa la fila de la radio en Snapweb, y el
+  encendido automático por DLNA. Es el único de los tres pensado para desaparecer
+  del todo si se cambia de equipo (ver
   [Cómo dar de baja la Sangean](#cómo-dar-de-baja-la-sangean)).
 
 `site.yml` los corre en ese orden porque `05_icecast_bridge` depende de variables
-del hub (`soloist_user`) y `06_sangean` depende de una variable del puente
-(`icecast_mount`, para armar la URL que empuja por DLNA) — no hay `meta/main.yml`
-entre ellos, es orden manual como el resto del playbook.
+del hub (`soloist_user`) y `06_sangean` depende de variables del puente
+(`icecast_mount`, para armar la URL que empuja por DLNA, e `icecast_sink`) — no hay
+`meta/main.yml` entre ellos, es orden manual como el resto del playbook.
 
 ### Cadena de audio
 
@@ -123,8 +126,15 @@ pipewire-pulse + module-pipe-sink
 /run/snapcast/soloist   (FIFO s16le 44100 2ch, creado por systemd-tmpfiles)
    |
    v
-snapserver  ->  flac  ->  snapclients de la LAN (1704/1705/1780)
-                          + Snapweb en http://<ip>:1780
+snapserver: Soloist ─┐
+                     ├─> Casa  ->  flac  ->  snapclients de la LAN (1704/1705/1780)
+snapserver: Radio ───┘                       + Snapweb en http://<ip>:1780
+   ^                                         + snapclient de la Sangean -> Icecast
+   |
+/run/snapcast/mpd   (FIFO s16le 44100 2ch)
+   ^
+   |
+mpd  <-  myMPD en http://<ip>:8800
 ```
 
 Un solo stream en **flac**, sin perdida, a **44,1 kHz / 16 bits**: la tasa nativa de
@@ -237,6 +247,74 @@ del ultimo cambio y la servia congelada: `position` valia siempre ~0.07 s. El hi
 `tick_loop` republica cada segundo mientras `playbackStatus` es `playing`; en pausa
 no publica nada.
 
+### Radio por internet y la fuente `Casa`
+
+La radio la reproduce **MPD**, que escribe al FIFO `/run/snapcast/mpd` en el mismo
+formato que Soloist (44,1 kHz / 16 bits; si la emisora transmite a otra tasa, MPD la
+convierte). Se maneja desde **myMPD**, una pagina pensada para el celular:
+`http://<ip-de-la-pi>:8800`. myMPD viene del repositorio de su autor en el Open
+Build Service; el rol verifica la huella de la clave antes de agregarlo.
+
+**Favoritas y pantalla de inicio.** El rol carga `radio_favorites` (La 100, Mitre,
+Metro, Aspen, Rock & Pop, Vorterix) como favoritas y como botones del *Inicio* de
+myMPD, mas un boton *Buscar radio*. Cada cosa se carga solo si myMPD no tiene
+ninguna, asi que lo que la familia agregue o borre no se pisa en el siguiente
+despliegue. Tocar una radio en el *Inicio* o en las favoritas la pone a sonar.
+
+Para sumar una radio: *Buscar radio*, con el nombre en `Name` y, si se quiere,
+`Argentina` en `Country`. Busca en [Radio Browser](https://www.radio-browser.info/), la
+misma base que usa Music Assistant; la base propia de myMPD (WebradioDB) casi no tiene
+radios argentinas. La radio elegida queda en *Navegar → (icono de capas) → Radios web
+favoritas*; desde su menu, *Agregar a la pantalla inicial* le da su boton. El script se
+baja fijado a un commit de `jcorporation/mympd-scripts` y con checksum.
+
+Dos ajustes de myMPD que el rol cambia, porque lo que trae de fabrica es incomodo:
+
+- **Tocar una favorita la reemplaza y la reproduce** (`clickRadioFavorites:
+  replacePlay`); de fabrica solo la agrega a la fila, sin sonar.
+- **Los botones del *Inicio* se crean como `stream` y con *Reemplazar fila y
+  reproducir***, con un JavaScript propio que el rol copia a
+  `/var/lib/mympd/config/custom_js`. No va como variable `MYMPD_CUSTOM_JS` porque
+  myMPD descarta las variables de mas de 100 caracteres. De fabrica se
+  crean como `webradio` y sin reproducir, y myMPD 26 tiene un error con los `webradio`:
+  suenan la primera vez y despues arman una URL rota (`Webradio not found`) hasta
+  recargar la pagina. El script reemplaza la funcion `addRadioFavoriteToHome` de myMPD:
+  si una version nueva la renombra, los botones vuelven a crearse como de fabrica.
+
+**Una sola fuente para los grupos.** Snapserver tiene tres streams: `Soloist` y `Radio`
+con `codec=null`, que solo alimentan, y el stream `meta` `Casa`, que es el que
+escuchan los grupos y el unico que se codifica. Snapserver oculta los streams `null`:
+no aparecen en Snapweb ni en `Server.GetStatus`, y no notifican sus cambios de estado. `Casa` suena con la entrada de mayor
+prioridad que este activa (Soloist primero). Un cliente nuevo cae en `Casa` solo,
+porque snapserver salta los streams `null` al elegir el default. El
+titulo y la caratula de Spotify siguen llegando a Snapweb: el meta stream reenvia las
+propiedades de la entrada activa.
+
+**Gana el ultimo play (`ultimo-play.py`).** La prioridad sola no alcanza: snapserver
+marca un pipe como `idle` tras 100 ms de silencio digital, y entre tema y tema Spotify
+hace huecos de 0,4 a 2,5 s, asi que una radio sonando de fondo se colaria en cada
+cambio de tema; y pausar Spotify devolveria la radio que alguien dejo prendida. Como
+los streams `null` no notifican nada, el daemon sigue a los reproductores
+directamente: a Soloist con `soloist ctl trace` y a MPD con `idle player`. Cuando uno
+arranca, pausa al otro (`soloist ctl pause` o `pause 1`). `buffering` cuenta como
+sonando, para que un cambio de tema de Spotify no pase por un play nuevo.
+
+El mismo daemon **vuelve a encender la salida de MPD** si alguien la apaga: en myMPD,
+el menu del parlante muestra la salida `Snapcast` como un boton, y tocarlo deja la
+radio muda con "All audio outputs are disabled".
+
+**El volumen de myMPD baja la radio dentro de la Pi** (`mixer_type "software"`),
+igual que el slider de Spotify con Spotify: quien use solo myMPD o solo la app de
+Spotify puede regular el volumen sin abrir Snapweb. Snapweb queda para emparejar
+ambientes. Si uno queda alto y el otro bajo, el volumen salta al pasar de una fuente a
+la otra. La perdida de resolucion que se evita con Spotify no aplica a la radio, que
+ya llega comprimida a 64-96 kbps. MPD arranca en pausa
+despues de un reinicio (`restore_paused`), para que un corte de luz no prenda la radio
+a la madrugada.
+
+**myMPD solo atiende en la LAN** (`MYMPD_ACL`), sin HTTPS ni usuario: no se publica
+por Cloudflare como Snapweb.
+
 ### Exposicion externa (`snapcast.tunegociosmart.com.ar`)
 
 > **La proteccion vive en Cloudflare Access, no en la Pi.**
@@ -299,12 +377,16 @@ publica ademas el audio como **stream MP3** que se sintoniza como si fuera una
 emisora: `http://<ip>:8000/soloist.mp3`.
 
 ```
-soloist_sink.monitor  ->  darkice  ->  Icecast  ->  radios de la LAN
+Casa  ->  snapclient local  ->  icecast_sink.monitor  ->  darkice  ->  Icecast  ->  radios de la LAN
 ```
 
-**darkice lee del monitor del sink**, asi que no hace falta un segundo FIFO ni un
-`combine-sink`: se cuelga del mismo audio que ya va hacia Snapcast. Se eligio
-darkice sobre ffmpeg por huella: 18 paquetes contra 169.
+**darkice lee del monitor de un sink nulo** (`icecast_sink`, unit de usuario
+`icecast-sink.service`) en el que un snapclient de la propia Pi reproduce `Casa`; ese
+snapclient lo pone `06_sangean`. Asi el stream lleva Spotify o radio, lo mismo que el
+resto de los parlantes. Se eligio darkice sobre ffmpeg por huella: 18 paquetes contra 169.
+
+Mientras suena la radio, la metadata ICY muestra el texto de reposo: `soloist-icymeta.py`
+solo conoce lo que reproduce Soloist.
 
 **MP3 y no flac/opus:** las Frontier Silicon manejan MP3, WMA y AAC; opus en esa
 generacion no existe. Esta rama es con perdida por limitacion de la radio.
@@ -366,14 +448,16 @@ Verificado sobre el equipo, para no volver a intentarlo:
 
 #### La Sangean como cliente de Snapweb
 
-Como la radio se alimenta de Icecast y no de snapcast, Snapweb no la ve y no hay
-donde bajarle el volumen. El rol levanta un `snapclient` que **no reproduce
-nada** (`--player file:filename=null`) y existe solo para ocupar una fila; su
-`--mixer script` traduce el slider a SOAP contra el `RenderingControl` de la
-radio.
+La radio se alimenta de Icecast y no de snapcast. El rol levanta un `snapclient`
+en la sesion de audio del usuario `soloist` que **reproduce `Casa` en
+`icecast_sink`** (`--player pulse --soundcard icecast_sink`), de donde lo toma
+darkice, y ocupa la fila de la radio en Snapweb. Su `--mixer script` no toca el
+audio: traduce el slider a SOAP contra el `RenderingControl` de la radio.
 
 ```
-Snapweb  ->  snapserver  ->  snapclient (salida nula)  ->  sangean-mixer.sh  ->  SOAP
+Snapweb  ->  snapserver  ->  snapclient  ->  sangean-mixer.sh  ->  SOAP
+                                  |
+                                  +-> icecast_sink  ->  darkice  ->  Icecast  ->  radio
 ```
 
 Tres cosas que cuestan una tarde si no se saben:
@@ -391,18 +475,17 @@ Tres cosas que cuestan una tarde si no se saben:
 
 Limitaciones que no tienen arreglo dentro de este diseno:
 
-- La radio va **segundos detras** de los demas clientes por el buffer de Icecast,
-  y el slider de latencia de Snapweb sobre este cliente no hace nada porque mueve
-  una reproduccion que se descarta. Si comparten ambiente, hay eco.
+- La radio va **segundos detras** de los demas clientes por el buffer de Icecast.
+  Si comparten ambiente, hay eco.
 - **La presencia miente**: el proceso corre en la Pi, asi que figura conectado
   aunque la radio este apagada.
-- **Pausa, next y prev siguen siendo del stream**, no del dispositivo: hay una
-  sola fuente Spotify. El equivalente por dispositivo es el mute.
+- **Pausa, next y prev siguen siendo del stream**, no del dispositivo. El
+  equivalente por dispositivo es el mute.
 
 #### Encendido automatico (`sangean-wake.py`)
 
-Cuando el stream pasa a `playing`, la radio se enciende sola: empezas a
-reproducir en Spotify y suena. El daemon se cuelga del puerto de control de
+Cuando `Casa` pasa a `playing`, la radio se enciende sola: empezas a
+reproducir en Spotify o en myMPD y suena. El daemon se cuelga del puerto de control de
 snapserver y actua solo en la **transicion** a `playing`, con un cooldown para
 que un parpadeo no la encienda dos veces.
 
@@ -453,14 +536,15 @@ Si el equipo se reemplaza o se deja de usar, la baja es local a este rol:
 
 1. Sacar `06_sangean` de `roles:` en `site.yml`.
 2. Borrar `ansible/roles/06_sangean/`.
-3. Correr el playbook: enmascara el `snapclient` fantasma que ya no se despliega
-   más (queda deshabilitado, no hace falta tocarlo a mano) y detiene/deshabilita
-   `snapclient-sangean.service` y `sangean-wake.service` al dejar de gestionarlos
-   — si se prefiere no depender de eso, `sudo systemctl disable --now
-   snapclient-sangean sangean-wake` antes de correr.
+3. Antes de correr el playbook, detener lo que ya no se va a gestionar:
+   `sudo systemctl disable --now sangean-wake` y, en la sesion de `soloist`,
+   `systemctl --user disable --now snapclient-sangean`. El `snapclient.service`
+   del paquete queda enmascarado, no hace falta tocarlo.
 
-El hub (`04_snapcast`) y el puente (`05_icecast_bridge`) no se tocan: el stream
-HTTP sigue disponible para cualquier otro equipo que lo necesite. El vhost
+El hub (`04_snapcast`) y el puente (`05_icecast_bridge`) no se tocan, pero sin
+el snapclient de la Sangean nadie reproduce en `icecast_sink` y el stream HTTP
+queda en silencio: si otro equipo lo necesita, hay que dejar un snapclient
+equivalente apuntado a ese sink. El vhost
 `stream-lan` (en `01_infra`) deja de desplegarse solo, por la condición descrita
 en [El shim de nginx](#el-shim-de-nginx) — no hace falta editar `01_infra` para
 la baja.
@@ -482,7 +566,10 @@ la URL con `icecast_mount`, que vive en `05_icecast_bridge`).
 |---|---|---|
 | `soloist_device_name` | `Snapcast Hub RPi2` | Nombre en la app de Spotify |
 | `soloist_cache_mb` | `500` | El default de Soloist es ilimitado: sobre SD es desgaste y riesgo de llenar la partición |
-| `snapcast_codec` | `flac` | Sin perdida. `opus` baja el ancho de banda a ~128 kbps si un cliente wifi no aguanta |
+| `snapcast_codec` | `flac` | Sin perdida. `opus` baja el ancho de banda a ~128 kbps si un cliente wifi no aguanta. Solo lo usa `Casa` |
+| `snapcast_main_stream_name` | `Casa` | La fuente que escuchan todos los grupos |
+| `mympd_http_port` | `8800` | Pagina de la radio |
+| `radio_favorites` | 6 radios argentinas | Se cargan solo si myMPD no tiene favoritas |
 | `soloist_sink_rate` | `44100` | Tasa del FIFO, de PipeWire y de snapserver; la nativa de Spotify |
 | `snapcast_buffer_ms` | `500` | |
 | `snapweb_version` | `0.9.3` | Ver nota sobre Snapweb mas arriba |
@@ -495,13 +582,14 @@ la URL con `icecast_mount`, que vive en `05_icecast_bridge`).
 |---|---|---|
 | `icecast_enabled` | `true` | Apaga todo el puente (y, en cascada, el vhost `stream-lan` y el wake de la Sangean) |
 | `icecast_mount` | `/soloist.mp3` | Path del stream MP3 |
+| `icecast_sink` | `icecast_sink` | Sink nulo cuyo monitor publica darkice |
 | `darkice_bitrate` | `320` | MP3 CBR. 320 es el maximo del formato; sin verificar que la Sangean lo acepte (si no, bajar a 192 o 128) |
 
 **`roles/06_sangean/defaults/main.yml`** (Sangean):
 
 | Variable | Default | Notas |
 |---|---|---|
-| `sangean_enabled` | `true` | Cliente fantasma en Snapweb (mixer de volumen) |
+| `sangean_enabled` | `true` | Cliente que alimenta Icecast y da el volumen en Snapweb |
 | `sangean_wake_enabled` | `true` | Encendido automático por DLNA |
 | `sangean_host` | `192.168.100.17` | IP de la radio en la LAN |
 | `sangean_wake_cooldown` | `60` | Segundos entre encendidos para no re-empujar por un parpadeo |
@@ -516,6 +604,10 @@ sudo -u soloist XDG_RUNTIME_DIR=/run/user/$(id -u soloist) systemctl --user stat
 # logs de Soloist (unit de usuario)
 sudo journalctl _SYSTEMD_USER_UNIT=soloist.service -f
 
+# radio y arbitro de fuentes
+sudo systemctl status mpd mympd ultimo-play
+sudo journalctl -u ultimo-play -f
+
 # forzar chequeo de actualización del binario
 sudo /usr/local/sbin/update-soloist.sh
 
@@ -525,7 +617,7 @@ curl -s -H "Content-Type: application/json" \
   http://127.0.0.1:1780/jsonrpc | python3 -m json.tool
 ```
 
-Interfaz web de Snapweb: `http://<ip-de-la-pi>:1780`
+Interfaz web de Snapweb: `http://<ip-de-la-pi>:1780`. Radio: `http://<ip-de-la-pi>:8800`
 
 **Primer emparejamiento:** abrir Spotify en la misma LAN y elegir el dispositivo con el nombre de `soloist_device_name`. Soloist loguea `waiting for login` hasta que ocurra.
 

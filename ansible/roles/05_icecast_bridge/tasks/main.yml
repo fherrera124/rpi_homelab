@@ -69,6 +69,18 @@
   when: icecast_enabled
   notify: Reiniciar icymeta
 
+- name: Desplegar el unit del sink de Icecast
+  ansible.builtin.template:
+    src: icecast-sink.service.j2
+    dest: "{{ soloist_home }}/.config/systemd/user/icecast-sink.service"
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
+    mode: '0644'
+  when: icecast_enabled
+  notify:
+    - "recargar systemd usuario soloist"
+    - Reiniciar sink de Icecast
+
 - name: Desplegar units de darkice e icymeta
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -92,7 +104,7 @@
     state: started
   when: icecast_enabled
 
-- name: Habilitar darkice e icymeta
+- name: Habilitar el sink de Icecast, darkice e icymeta
   ansible.builtin.systemd_service:
     name: "{{ item }}"
     scope: user
@@ -103,6 +115,7 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
   loop:
+    - icecast-sink.service
     - soloist-darkice.service
     - soloist-icymeta.service
   when: icecast_enabled

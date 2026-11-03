@@ -66,14 +66,15 @@ if [ -n "$SOLOIST_UID" ]; then
     systemctl --user disable --now soloist.service soloist-pipe-sink.service 2>/dev/null || true
 fi
 systemctl disable --now snapserver update-soloist.timer icecast2 \
-  snapclient-sangean sangean-wake 2>/dev/null || true
+  snapclient-sangean sangean-wake ultimo-play mympd mpd 2>/dev/null || true
 if [ -n "$SOLOIST_UID" ]; then
   runuser -u soloist -- env "XDG_RUNTIME_DIR=/run/user/${SOLOIST_UID}" \
-    systemctl --user disable --now soloist-darkice.service soloist-icymeta.service 2>/dev/null || true
+    systemctl --user disable --now soloist-darkice.service soloist-icymeta.service \
+      snapclient-sangean.service icecast-sink.service 2>/dev/null || true
 fi
 
 echo "-> Purgando paquetes de audio..."
-apt purge -y snapserver snapweb snapclient pipewire pipewire-pulse wireplumber pulseaudio-utils icecast2 darkice 2>/dev/null || true
+apt purge -y snapserver snapweb snapclient pipewire pipewire-pulse wireplumber pulseaudio-utils icecast2 darkice mpd mympd 2>/dev/null || true
 
 echo "-> Eliminando binario, configuracion y unidades de Soloist..."
 rm -f /usr/local/bin/soloist
@@ -88,6 +89,11 @@ rm -f /etc/darkice.cfg
 rm -f /usr/local/bin/soloist-icymeta.py
 rm -f /usr/local/bin/sangean-mixer.sh /usr/local/bin/sangean-wake.py
 rm -f /etc/systemd/system/snapclient-sangean.service /etc/systemd/system/sangean-wake.service
+rm -f /etc/mpd_local.conf /etc/tmpfiles.d/snapcast-radio.conf
+rm -f /usr/local/bin/ultimo-play.py /etc/systemd/system/ultimo-play.service
+rm -rf /etc/systemd/system/mympd.service.d
+rm -rf /var/lib/private/mympd /var/lib/mympd /var/cache/private/mympd /var/cache/mympd
+rm -f /etc/apt/sources.list.d/jcorporation.sources /etc/apt/keyrings/jcorporation.asc
 # 06_sangean enmascara el snapclient.service del paquete: el symlink a /dev/null
 # sobrevive al purge y bloquearia una reinstalacion.
 systemctl unmask snapclient.service 2>/dev/null || true

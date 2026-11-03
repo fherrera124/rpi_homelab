@@ -1,8 +1,8 @@
 # {{ ansible_managed }}
 [Unit]
-Description=darkice - publica el audio de Soloist como stream en Icecast
-After=soloist-pipe-sink.service
-Requires=soloist-pipe-sink.service
+Description=darkice - publica {{ snapcast_main_stream_name }} como stream en Icecast
+After=icecast-sink.service
+Requires=icecast-sink.service
 
 [Service]
 Type=simple

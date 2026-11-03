@@ -1,7 +1,7 @@
 ---
 # --- La Sangean como cliente de Snapweb ---
 
-- name: Instalar snapclient para el cliente fantasma de la Sangean
+- name: Instalar snapclient para el cliente de la Sangean
   ansible.builtin.apt:
     pkg: snapclient
     state: present
@@ -31,19 +31,25 @@
 - name: Desplegar el unit del cliente de la Sangean
   ansible.builtin.template:
     src: snapclient-sangean.service.j2
-    dest: /etc/systemd/system/snapclient-sangean.service
-    owner: root
-    group: root
+    dest: "{{ soloist_home }}/.config/systemd/user/snapclient-sangean.service"
+    owner: "{{ soloist_user }}"
+    group: "{{ soloist_user }}"
     mode: '0644'
   when: sangean_enabled
-  notify: Reiniciar cliente de la Sangean
+  notify:
+    - "recargar systemd usuario soloist"
+    - Reiniciar cliente de la Sangean
 
 - name: Habilitar el cliente de la Sangean
   ansible.builtin.systemd_service:
     name: snapclient-sangean.service
+    scope: user
     enabled: true
     state: started
-    daemon_reload: true
+  become: true
+  become_user: "{{ soloist_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ soloist_uid }}"
   when: sangean_enabled
 
 - name: Aplicar cambios del cliente antes de nombrarlo

@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Lo incluye /etc/mpd.conf del paquete Debian (include_optional).
+bind_to_address "/run/mpd/socket"
+restore_paused  "yes"
+
+audio_output {
+    type        "fifo"
+    name        "Snapcast"
+    path        "{{ radio_fifo }}"
+    format      "{{ snapcast_sampleformat }}"
+    mixer_type  "software"
+}

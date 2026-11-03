@@ -1,20 +1,18 @@
 ---
 # --- La Sangean como cliente de Snapweb ---
-# La radio se alimenta del stream de Icecast, no de snapcast, asi que Snapweb no
-# la ve y no hay forma de bajarle el volumen desde la interfaz. Este snapclient
-# no reproduce nada (--player file:filename=null): existe solo para ocupar una
-# fila, y su mixer traduce el slider a SOAP contra el RenderingControl de la
-# radio.
+# La radio no habla snapcast: escucha el stream de Icecast. Este snapclient corre
+# en la sesion de audio de la Pi, reproduce Casa en el sink que publica darkice
+# (rol 05_icecast_bridge) y ocupa la fila de la radio en Snapweb. Su mixer
+# traduce el slider a SOAP contra el RenderingControl de la radio, sin tocar el
+# audio.
 #
 # Verificado en la WFR-28: SetVolume y SetMute cambian el volumen audible.
 # Limitaciones conocidas, inherentes al diseno:
-#  - La radio va segundos detras de los demas clientes (buffer de Icecast), y el
-#    slider de latencia de Snapweb sobre este cliente no hace nada porque mueve
-#    una reproduccion que se descarta.
+#  - La radio va segundos detras de los demas clientes (buffer de Icecast).
 #  - La presencia miente: el proceso corre en la Pi, asi que figura conectado
 #    aunque la radio este apagada.
-#  - Pausa, next y prev siguen siendo del stream (una sola fuente Spotify); el
-#    equivalente por dispositivo es el mute, y ese si funciona.
+#  - Pausa, next y prev siguen siendo del stream; el equivalente por
+#    dispositivo es el mute, y ese si funciona.
 sangean_enabled: true
 sangean_host: 192.168.100.17
 sangean_upnp_port: 8080
@@ -26,12 +24,11 @@ sangean_client_name: Sangean WFR-28
 # mixer no debe demorar la cadena de snapclient.
 sangean_soap_timeout: 4
 # Con el default (*:info) snapclient escribe "No chunks available" una vez por
-# segundo mientras el stream esta idle: ~86k lineas por dia en el journal, de un
-# cliente cuya cadena de audio ademas se descarta.
+# segundo mientras el stream esta idle: ~86k lineas por dia en el journal.
 sangean_log_filter: "*:warning"
 
 # --- Encendido automatico de la Sangean ---
-# Cuando el stream pasa a "playing", la radio se enciende sola: se le empuja la
+# Cuando Casa pasa a "playing", la radio se enciende sola: se le empuja la
 # URL de Icecast por DLNA (SetAVTransportURI + Play) al mismo endpoint que usa
 # sangean-mixer.sh. El push la saca de standby por su cuenta, en menos de 4 s
 # medidos, y no necesita PIN ni sesion.

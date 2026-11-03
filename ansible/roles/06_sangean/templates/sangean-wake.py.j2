@@ -3,7 +3,7 @@
 # {{ ansible_managed }}
 #
 # Despierta la Sangean cuando el stream de Snapcast pasa a "playing", para que
-# empezar a reproducir en Spotify encienda la radio sola.
+# empezar a reproducir Spotify o la radio la encienda sola.
 #
 # Le empuja la URL de Icecast por DLNA (SetAVTransportURI + Play). Dos llamadas
 # SOAP al mismo endpoint que ya usa sangean-mixer.sh: no hace falta PIN, ni
@@ -40,7 +40,7 @@ params = {
     'snapserver-host': '127.0.0.1',
     'control-port': {{ snapcast_tcp_port }},
     'http-port': {{ snapcast_http_port }},
-    'stream-id': '{{ snapcast_stream_name }}',
+    'stream-id': '{{ snapcast_main_stream_name }}',
     'radio-host': '{{ sangean_host }}',
     'radio-port': {{ sangean_upnp_port }},
     'stream-url': '{{ sangean_stream_url }}',

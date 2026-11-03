@@ -1,0 +1,317 @@
+---
+# --- Radio por internet: MPD escribe al FIFO de Snapserver, myMPD lo maneja ---
+
+- name: Instalar MPD
+  ansible.builtin.apt:
+    pkg: mpd
+    state: present
+
+- name: Desplegar regla de tmpfiles para el FIFO de la radio
+  ansible.builtin.template:
+    src: tmpfiles-radio.conf.j2
+    dest: /etc/tmpfiles.d/snapcast-radio.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: radio_tmpfiles
+
+- name: Crear el FIFO de la radio
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/snapcast-radio.conf
+  when: radio_tmpfiles is changed
+
+- name: Configurar la salida de MPD hacia Snapserver
+  ansible.builtin.template:
+    src: mpd_local.conf.j2
+    dest: /etc/mpd_local.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reiniciar MPD
+
+- name: Habilitar MPD
+  ansible.builtin.systemd_service:
+    name: mpd.service
+    enabled: true
+    state: started
+
+- name: Descargar la clave del repositorio de myMPD
+  ansible.builtin.get_url:
+    url: "{{ mympd_repo_url }}Release.key"
+    dest: /etc/apt/keyrings/jcorporation.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Verificar la huella de la clave de myMPD
+  ansible.builtin.command: gpg --show-keys --with-colons /etc/apt/keyrings/jcorporation.asc
+  register: mympd_key
+  changed_when: false
+  failed_when: >-
+    mympd_key.rc != 0 or
+    ('fpr:::::::::' ~ mympd_repo_key_fingerprint ~ ':') not in mympd_key.stdout
+
+- name: Agregar el repositorio de myMPD
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/jcorporation.sources
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: {{ mympd_repo_url }}
+      Suites: ./
+      Signed-By: /etc/apt/keyrings/jcorporation.asc
+  register: mympd_repo
+
+- name: Instalar myMPD
+  ansible.builtin.apt:
+    pkg: mympd
+    state: present
+    update_cache: "{{ mympd_repo is changed }}"
+
+- name: Desactivar el myMPD por usuario que el paquete habilita para todos
+  ansible.builtin.systemd_service:
+    name: mympd.service
+    scope: global
+    enabled: false
+
+- name: Crear el directorio del override de myMPD
+  ansible.builtin.file:
+    path: /etc/systemd/system/mympd.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configurar puerto y acceso de myMPD
+  ansible.builtin.template:
+    src: mympd-override.conf.j2
+    dest: /etc/systemd/system/mympd.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reiniciar myMPD
+
+- name: Habilitar myMPD
+  ansible.builtin.systemd_service:
+    name: mympd.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Aplicar la configuracion de MPD y myMPD
+  ansible.builtin.meta: flush_handlers
+
+- name: Esperar a que myMPD atienda
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ mympd_http_port }}"
+    timeout: 60
+
+- name: Consultar el dueno del directorio de trabajo de myMPD
+  ansible.builtin.stat:
+    path: /var/lib/mympd
+    follow: true
+  register: mympd_workdir
+
+- name: Desplegar el JavaScript propio de myMPD
+  ansible.builtin.template:
+    src: mympd-custom.js.j2
+    dest: /var/lib/mympd/config/custom_js
+    owner: "{{ mympd_workdir.stat.uid }}"
+    group: "{{ mympd_workdir.stat.gid }}"
+    mode: '0600'
+  notify: Reiniciar myMPD
+
+- name: Instalar el buscador de Radio Browser en myMPD
+  ansible.builtin.get_url:
+    url: "{{ mympd_radiobrowser_url }}"
+    checksum: "sha256:{{ mympd_radiobrowser_sha256 }}"
+    dest: /var/lib/mympd/scripts/Radiobrowser.lua
+    owner: "{{ mympd_workdir.stat.uid }}"
+    group: "{{ mympd_workdir.stat.gid }}"
+    mode: '0644'
+  register: mympd_radiobrowser
+
+- name: Recargar los scripts de myMPD
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_SCRIPT_RELOAD
+      params: {}
+  register: mympd_reload
+  failed_when: "'error' in mympd_reload.json"
+  when: mympd_radiobrowser is changed
+
+- name: Contar las radios favoritas de myMPD
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_WEBRADIO_FAVORITE_SEARCH
+      params:
+        offset: 0
+        limit: 1
+        expression: ""
+        sort: Name
+        sortdesc: false
+  register: mympd_favorites
+  failed_when: "'error' in mympd_favorites.json"
+  check_mode: false
+
+- name: Precargar las radios favoritas
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_WEBRADIO_FAVORITE_SAVE
+      params:
+        name: "{{ item.name }}"
+        oldName: ""
+        streamUri: "{{ item.uri }}"
+        image: "{{ item.image | default('') }}"
+        genres: []
+        homepage: "{{ item.homepage | default('') }}"
+        country: Argentina
+        region: ""
+        languages: [Spanish]
+        description: ""
+        codec: "{{ item.codec }}"
+        bitrate: "{{ item.bitrate }}"
+  register: mympd_favorite_saved
+  failed_when: "'error' in mympd_favorite_saved.json"
+  changed_when: true
+  loop: "{{ radio_favorites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: mympd_favorites.json.result.returnedEntities | int == 0
+
+- name: Consultar la pantalla de inicio de myMPD
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_HOME_ICON_LIST
+      params: {}
+  register: mympd_home
+  failed_when: "'error' in mympd_home.json"
+  check_mode: false
+
+- name: Poner las radios en la pantalla de inicio
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_HOME_ICON_SAVE
+      params:
+        replace: false
+        oldpos: 0
+        name: "{{ item.name }}"
+        ligature: "{{ '' if item.image | default('') else 'radio' }}"
+        bgcolor: "#28a745"
+        color: "#f8f9fa"
+        image: "{{ item.image | default('') }}"
+        cmd: replacePlayQueue
+        options: [stream, "{{ item.uri }}"]
+  register: mympd_home_saved
+  failed_when: "'error' in mympd_home_saved.json"
+  changed_when: true
+  loop: "{{ radio_favorites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: mympd_home.json.result.returnedEntities | int == 0
+
+- name: Poner el buscador de radios en la pantalla de inicio
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_HOME_ICON_SAVE
+      params:
+        replace: false
+        oldpos: 0
+        name: Buscar radio
+        ligature: search
+        bgcolor: "#6c757d"
+        color: "#f8f9fa"
+        image: ""
+        cmd: execScriptFromOptions
+        options: [Radiobrowser, "Name,Country,Tag"]
+  register: mympd_home_search
+  failed_when: "'error' in mympd_home_search.json"
+  changed_when: true
+  when: mympd_home.json.result.returnedEntities | int == 0
+
+- name: Leer los ajustes de la pagina de myMPD
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_SETTINGS_GET
+      params: {}
+  register: mympd_settings
+  failed_when: "'error' in mympd_settings.json"
+  check_mode: false
+
+- name: Reproducir la radio al tocarla en las favoritas
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ mympd_http_port }}/api/default"
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      id: 0
+      method: MYMPD_API_SETTINGS_SET
+      params:
+        webuiSettings: "{{ mympd_settings.json.result.webuiSettings | combine({'clickRadioFavorites': 'replacePlay'}) }}"
+  register: mympd_settings_saved
+  failed_when: "'error' in mympd_settings_saved.json"
+  changed_when: true
+  when: mympd_settings.json.result.webuiSettings.clickRadioFavorites | default('') != 'replacePlay'
+
+- name: Desplegar el arbitro de fuentes
+  ansible.builtin.template:
+    src: ultimo-play.py.j2
+    dest: /usr/local/bin/ultimo-play.py
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Reiniciar ultimo-play
+
+- name: Desplegar el unit del arbitro de fuentes
+  ansible.builtin.template:
+    src: ultimo-play.service.j2
+    dest: /etc/systemd/system/ultimo-play.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reiniciar ultimo-play
+
+- name: Habilitar el arbitro de fuentes
+  ansible.builtin.systemd_service:
+    name: ultimo-play.service
+    enabled: true
+    state: started
+    daemon_reload: true

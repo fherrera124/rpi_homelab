@@ -39,6 +39,9 @@ soloist_sink_channels: 2
 # volver a snapcast_codec: opus es una variable, pero a costa de fidelidad.
 # El sampleformat se deriva del FIFO para que no puedan divergir.
 snapcast_stream_name: Soloist
+snapcast_radio_stream_name: Radio
+# La fuente que escuchan todos los grupos.
+snapcast_main_stream_name: Casa
 snapcast_codec: flac
 snapcast_sampleformat: "{{ soloist_sink_rate }}:16:{{ soloist_sink_channels }}"
 snapcast_buffer_ms: 500
@@ -71,3 +74,51 @@ soloist_cpu_weight: 50
 
 # Chequeo semanal del binario.
 soloist_update_oncalendar: "Sun *-*-* 04:00:00"
+
+# --- Radio por internet: MPD + myMPD ---
+radio_fifo: /run/snapcast/mpd
+mpd_port: 6600
+mympd_http_port: 8800
+mympd_repo_url: "https://download.opensuse.org/repositories/home:/jcorporation/Raspbian_{{ ansible_facts['distribution_major_version'] }}/"
+mympd_repo_key_fingerprint: A37AADC40A1CC6BEFB75372FAA09B8CCE895BD7D
+mympd_radiobrowser_url: https://raw.githubusercontent.com/jcorporation/mympd-scripts/ec3def3fd7b4b93d9a74eb422a7664c1cdcf4364/Radiobrowser/Radiobrowser.lua
+mympd_radiobrowser_sha256: 7b36ab00f29c165be7ef8fca05e1530d0cf3132b56bb3aaac85405016297ca02
+
+# Se cargan como favoritas y como botones del inicio, cada cosa solo si myMPD
+# no tiene ninguna.
+radio_favorites:
+  - name: La 100
+    uri: https://playerservices.streamtheworld.com/api/livestream-redirect/FM999_56.mp3
+    codec: MP3
+    bitrate: 96
+    image: http://cdn-profiles.tunein.com/s6984/images/logod.jpg
+    homepage: https://la100.cienradios.com/
+  - name: Radio Mitre
+    uri: https://playerservices.streamtheworld.com/api/livestream-redirect/AM790_56AAC_SC
+    codec: AAC+
+    bitrate: 64
+    image: https://cloudfront-arc.cienradios.com/radiomitre/favicons/apple-icon-120x120.png
+    homepage: https://radiomitre.cienradios.com/
+  - name: Metro 95.1
+    uri: https://playerservices.streamtheworld.com/api/livestream-redirect/METRO.mp3
+    codec: MP3
+    bitrate: 96
+    image: https://cdn-profiles.tunein.com/s25987/images/logog.jpg
+    homepage: https://www.metro951.com/
+  - name: Aspen 102.3
+    uri: https://playerservices.streamtheworld.com/api/livestream-redirect/ASPEN.mp3
+    codec: MP3
+    bitrate: 96
+    image: https://www.fmaspen.com/favicon.png
+    homepage: https://fmaspen.com/
+  - name: Rock & Pop 95.9
+    uri: https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKANDPOP.mp3
+    codec: MP3
+    bitrate: 96
+    image: https://fmrockandpop.com/images/ryp/logo_2022.webp
+    homepage: https://fmrockandpop.com/
+  - name: Vorterix
+    uri: https://ice2.edge-apps.net/radio1_high-20057.audio
+    codec: AAC+
+    bitrate: 56
+    homepage: https://www.vorterix.com/

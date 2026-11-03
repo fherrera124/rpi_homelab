@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
-# Hub de distribucion: Soloist (Spotify Connect) -> FIFO -> snapclients de la LAN.
-# Sin parlantes locales en este equipo.
+# Hub de distribucion: Soloist (Spotify Connect) y MPD (radio) -> FIFOs -> Casa
+# -> snapclients de la LAN. Sin parlantes locales en este equipo.
 
 [server]
 threads = -1
@@ -8,7 +8,9 @@ threads = -1
 plugin_dir = {{ snapcast_plugin_dir }}
 
 [stream]
-source = pipe://{{ soloist_fifo }}?name={{ snapcast_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec={{ snapcast_codec }}&mode=create&controlscript={{ snapcast_controlscript }}&controlscriptparams=--ws-port={{ soloist_ws_port }}
+source = pipe://{{ soloist_fifo }}?name={{ snapcast_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec=null&mode=create&controlscript={{ snapcast_controlscript }}&controlscriptparams=--ws-port={{ soloist_ws_port }}
+source = pipe://{{ radio_fifo }}?name={{ snapcast_radio_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec=null&mode=read
+source = meta:///{{ snapcast_stream_name }}/{{ snapcast_radio_stream_name }}?name={{ snapcast_main_stream_name }}&sampleformat={{ snapcast_sampleformat }}&codec={{ snapcast_codec }}
 buffer = {{ snapcast_buffer_ms }}
 
 [http]

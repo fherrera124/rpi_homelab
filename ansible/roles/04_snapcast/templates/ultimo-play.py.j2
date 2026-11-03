@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# {{ ansible_managed }}
+#
+# Gana el ultimo play: cuando Spotify o la radio arrancan, pausa al otro.
+# Mira a Soloist y a MPD directamente: snapserver no reporta el estado de los
+# streams con codec=null. Tambien vuelve a encender la salida de MPD si alguien
+# la apaga desde myMPD.
+
+import json
+import logging
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+logger = logging.getLogger('ultimo-play')
+
+SOLOIST_CTL = ['{{ soloist_binary }}', 'ctl', '-w', '127.0.0.1:{{ soloist_ws_port }}']
+MPD = ('127.0.0.1', {{ mpd_port }})
+
+# None: todavia no se sabe. Asi el estado inicial no cuenta como arranque.
+activo = {'spotify': None, 'radio': None}
+candado = threading.Lock()
+
+
+def pausar_spotify():
+    resultado = subprocess.run(SOLOIST_CTL + ['pause'], capture_output=True,
+                               text=True, timeout=10)
+    if resultado.returncode != 0:
+        logger.warning('soloist ctl pause salio con %s: %s',
+                       resultado.returncode, resultado.stderr.strip())
+
+
+def pedir(canal, comando):
+    canal.write(comando.encode() + b'\n')
+    canal.flush()
+    respuesta = []
+    for linea in canal:
+        linea = linea.decode('utf-8', 'replace').rstrip('\n')
+        if linea == 'OK':
+            return respuesta
+        if linea.startswith('ACK'):
+            raise ConnectionError(linea)
+        clave, _, valor = linea.partition(': ')
+        respuesta.append((clave, valor))
+    raise ConnectionError('MPD cerro la conexion')
+
+
+def radio_sonando(canal):
+    return dict(pedir(canal, 'status')).get('state') == 'play'
+
+
+def encender_salidas(canal):
+    salida = None
+    for clave, valor in pedir(canal, 'outputs'):
+        if clave == 'outputid':
+            salida = valor
+        elif clave == 'outputenabled' and valor == '0':
+            logger.info('la salida %s de MPD estaba apagada, la enciendo', salida)
+            pedir(canal, 'enableoutput ' + salida)
+
+
+def pausar_radio():
+    with socket.create_connection(MPD, timeout=5) as sock:
+        canal = sock.makefile('rwb')
+        canal.readline()
+        pedir(canal, 'pause 1')
+
+
+def cambio(fuente, ahora):
+    otra = 'radio' if fuente == 'spotify' else 'spotify'
+    with candado:
+        arranco = activo[fuente] is False and ahora
+        activo[fuente] = ahora
+        pausar = arranco and activo[otra]
+    if not pausar:
+        return
+    logger.info('arranco %s, pauso %s', fuente, otra)
+    try:
+        pausar_radio() if otra == 'radio' else pausar_spotify()
+    except (OSError, ConnectionError, subprocess.SubprocessError) as exc:
+        logger.warning('no pude pausar %s: %s', otra, exc)
+
+
+def olvidar(fuente):
+    with candado:
+        activo[fuente] = None
+
+
+def vigilar_radio():
+    espera = 1
+    while True:
+        try:
+            with socket.create_connection(MPD, timeout=10) as sock:
+                sock.settimeout(None)
+                canal = sock.makefile('rwb')
+                canal.readline()
+                encender_salidas(canal)
+                cambio('radio', radio_sonando(canal))
+                espera = 1
+                while True:
+                    if ('changed', 'output') in pedir(canal, 'idle player output'):
+                        encender_salidas(canal)
+                    cambio('radio', radio_sonando(canal))
+        except (OSError, ConnectionError) as exc:
+            logger.error('conexion con MPD perdida: %s', exc)
+        olvidar('radio')
+        time.sleep(espera)
+        espera = min(espera * 2, 60)
+
+
+def vigilar_spotify():
+    espera = 1
+    while True:
+        proceso = None
+        try:
+            proceso = subprocess.Popen(SOLOIST_CTL + ['trace'], stdout=subprocess.PIPE,
+                                       stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            for linea in proceso.stdout:
+                llave = linea.find('{')
+                if llave < 0:
+                    continue
+                try:
+                    mensaje = json.loads(linea[llave:])
+                except ValueError:
+                    continue
+                if mensaje.get('type') != 'playback_state':
+                    continue
+                espera = 1
+                cambio('spotify', mensaje.get('status') in ('playing', 'buffering'))
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.error('trace de Soloist: %s', exc)
+        finally:
+            if proceso:
+                proceso.terminate()
+        logger.warning('reconectando a Soloist en %ss', espera)
+        olvidar('spotify')
+        time.sleep(espera)
+        espera = min(espera * 2, 30)
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format='%(asctime)s %(levelname)s: %(message)s')
+    threading.Thread(target=vigilar_radio, daemon=True).start()
+    vigilar_spotify()
+
+
+if __name__ == '__main__':
+    main()

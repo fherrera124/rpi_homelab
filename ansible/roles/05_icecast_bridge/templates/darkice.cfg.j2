@@ -1,10 +1,7 @@
 # {{ ansible_managed }}
 #
-# Toma el audio del monitor del sink de Soloist y lo publica como stream en
-# Icecast, para equipos que no hablan snapcast (radios de internet).
-#
-# Leer del monitor evita necesitar un segundo FIFO o un combine-sink: es el
-# mismo audio que ya va hacia Snapcast.
+# Publica en Icecast el monitor de {{ icecast_sink }}, donde un snapclient local
+# reproduce {{ snapcast_main_stream_name }}, para equipos que no hablan snapcast.
 [general]
 duration     = 0
 bufferSecs   = {{ darkice_buffer_secs }}
@@ -12,7 +9,7 @@ reconnect    = yes
 
 [input]
 device        = pulseaudio
-paSourceName  = {{ soloist_combine_sink | default('soloist_sink') }}.monitor
+paSourceName  = {{ icecast_sink }}.monitor
 sampleRate    = {{ soloist_sink_rate }}
 bitsPerSample = 16
 channel       = {{ soloist_sink_channels }}

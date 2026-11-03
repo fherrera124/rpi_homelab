@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Gana el ultimo play entre Spotify y la radio
+After=mpd.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStart=/usr/local/bin/ultimo-play.py
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

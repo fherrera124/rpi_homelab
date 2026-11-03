@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+[Service]
+Environment=MYMPD_HTTP_HOST=0.0.0.0
+Environment=MYMPD_HTTP_PORT={{ mympd_http_port }}
+Environment=MYMPD_SSL=false
+Environment=MYMPD_ACL=+127.0.0.0/8,+{{ ansible_facts['default_ipv4']['network'] }}/{{ ansible_facts['default_ipv4']['prefix'] }}
